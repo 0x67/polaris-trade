@@ -1,7 +1,7 @@
 //! Socket configs. Required fields are `new` arguments, the rest public with
 //! defaults. Constructors call `validate` before first allocation or syscall.
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 use std::time::Duration;
 use std::{
     net::SocketAddr,
@@ -14,7 +14,7 @@ use transport_core::{TransportError, config::validate};
 const C_INT_MAX: u32 = i32::MAX.unsigned_abs();
 const DEFAULT_SLAB_COUNT: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
 const DEFAULT_SLAB_SIZE: NonZeroUsize = NonZeroUsize::new(2048).unwrap();
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// UDP socket: bind address, socket options, receive pool shape.
@@ -77,7 +77,7 @@ impl UdpConfig {
 }
 
 /// TCP stream: remote peer, optional local bind, socket options.
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TcpConfig {
@@ -95,7 +95,7 @@ pub struct TcpConfig {
     pub connect_timeout: Duration,
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 impl TcpConfig {
     /// Config connecting to `remote`, every option at default.
     pub fn new(remote: SocketAddr) -> Self {

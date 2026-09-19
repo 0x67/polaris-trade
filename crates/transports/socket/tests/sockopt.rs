@@ -110,7 +110,7 @@ fn reuse_port_on_windows_is_invalid_config() {
 }
 
 // same config through either TCP type yields same kernel options
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 fn assert_tcp_options_apply<T>(connect: impl FnOnce(&transport_socket::TcpConfig) -> T)
 where
     for<'a> SockRef<'a>: From<&'a T>,
@@ -135,6 +135,14 @@ where
     assert_buffers(&sock, &control, "tcp");
     let bound = sock.local_addr().expect("getsockname").as_socket();
     assert_eq!(bound, Some(local), "local bind");
+}
+
+#[cfg(feature = "mio")]
+#[test]
+fn mio_tcp_options_read_back_from_kernel() {
+    use transport_socket::mio::MioTcp;
+
+    assert_tcp_options_apply(|cfg| MioTcp::connect(cfg).expect("connect"));
 }
 
 #[cfg(feature = "tokio")]

@@ -153,7 +153,7 @@ pub(crate) fn peek_ready(sock: &Socket) -> io::Result<()> {
 /// Stream read shared by TCP types: empty `dst` and would-block are `Ok(0)`,
 /// zero-byte read of non-empty `dst` is `PeerClosed`. `Ok(n)` means `recv`
 /// initialised `dst[..n]`.
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 pub(crate) fn stream(
     dst: &mut [MaybeUninit<u8>],
     recv: impl FnOnce(&mut [MaybeUninit<u8>]) -> io::Result<usize>,

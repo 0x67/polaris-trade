@@ -1,6 +1,7 @@
-//! Conformance suite on every socket type: datagram contract on `UdpSocket`
-//! and `AsyncUdp` (exhaustion signalled as `PoolExhausted`), sync and async
-//! stream contract on tokio `TcpStream`.
+//! Conformance suite on every socket type: datagram contract on `UdpSocket`,
+//! `AsyncUdp` and `MioUdp` (exhaustion signalled as `PoolExhausted`), stream
+//! contract on `MioTcp` and tokio `TcpStream`, async stream contract on tokio
+//! `TcpStream`.
 
 mod support;
 
@@ -40,6 +41,14 @@ fn udp_socket_meets_datagram_contract() {
     datagram_contract(|s| s, |t| t.local_addr().expect("local addr"));
 }
 
+#[cfg(feature = "mio")]
+#[test]
+fn mio_udp_meets_datagram_contract() {
+    use transport_socket::mio::MioUdp;
+
+    datagram_contract(MioUdp::from_socket, |t| t.local_addr().expect("local addr"));
+}
+
 #[cfg(feature = "tokio")]
 #[test]
 fn async_udp_meets_datagram_contract() {
@@ -57,7 +66,7 @@ fn async_udp_meets_datagram_contract() {
 }
 
 // connected transport plus accepted std peer
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 fn tcp_pair<T>(
     connect: impl FnOnce(&transport_socket::TcpConfig) -> T,
 ) -> (T, std::net::TcpStream) {
@@ -66,6 +75,15 @@ fn tcp_pair<T>(
     let t = connect(&cfg);
     let (peer, _) = listener.accept().expect("accept");
     (t, peer)
+}
+
+#[cfg(feature = "mio")]
+#[test]
+fn mio_tcp_meets_stream_contract() {
+    use transport_core::testing::conformance::run_stream;
+    use transport_socket::mio::MioTcp;
+
+    run_stream(|| tcp_pair(|cfg| MioTcp::connect(cfg).expect("connect")));
 }
 
 #[cfg(feature = "tokio")]

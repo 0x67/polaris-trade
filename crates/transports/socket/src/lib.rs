@@ -11,12 +11,15 @@
 //! | --- | --- |
 //! | none | [`UdpSocket`]: sync, non-blocking UDP for busy-poll loops |
 //! | `tokio` | [`tokio::AsyncUdp`] and [`tokio::TcpStream`] with [`AsyncReady`](transport_core::AsyncReady) |
+//! | `mio` | [`mio::MioUdp`], [`mio::MioTcp`] and [`mio::ReadySet`]: one blocking poll over many sockets, no runtime |
 //! | `observability` | receive metrics through `transport_core::telemetry` |
 //!
 //! Backend names ([`Transport::name`](transport_core::Transport::name) and
-//! metric label): `udp`, `tokio-udp`, `tokio-tcp`.
+//! metric label): `udp`, `tokio-udp`, `tokio-tcp`, `mio-udp`, `mio-tcp`.
 
 mod config;
+#[cfg(feature = "mio")]
+pub mod mio;
 mod recv;
 mod sockopt;
 #[cfg(feature = "tokio")]
@@ -25,7 +28,7 @@ mod udp;
 
 use std::io;
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 pub use config::TcpConfig;
 pub use config::UdpConfig;
 pub use recv::UdpFrame;
@@ -38,7 +41,7 @@ fn io_error(stage: &'static str) -> impl FnOnce(io::Error) -> TransportError {
 }
 
 // stream partial write: would-block is `Ok(0)`, caller retries on writable
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 fn written(result: io::Result<usize>) -> Result<usize, TransportError> {
     match result {
         Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),

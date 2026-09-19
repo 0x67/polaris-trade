@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use socket2::{Domain, Protocol, Socket, Type};
 use transport_core::TransportError;
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 use crate::TcpConfig;
 use crate::{UdpConfig, io_error};
 
@@ -47,7 +47,7 @@ pub(crate) fn udp(cfg: &UdpConfig) -> Result<Socket, TransportError> {
 
 /// Unconnected TCP socket, options applied, bound to `cfg.local` when set.
 /// Caller picks blocking mode and connects.
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "tokio", feature = "mio"))]
 pub(crate) fn tcp(cfg: &TcpConfig) -> Result<Socket, TransportError> {
     let sock = Socket::new(
         Domain::for_address(cfg.remote),

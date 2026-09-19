@@ -1,17 +1,18 @@
 //! TCP cases beyond conformance suite (`tests/conformance.rs` covers empty
 //! read, ordered bytes, `PeerClosed`, resumed `try_send`, 8 MiB `send_all`):
-//! config rejected before connecting and connect failure mapping.
+//! config rejected before connecting, connect failure mapping, and partial
+//! write under tiny `SO_SNDBUF` resumed on `ReadySet` writable readiness.
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 use std::net::{SocketAddr, TcpListener};
 
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 use transport_core::TransportError;
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 use transport_socket::TcpConfig;
 
 // unspecified remote would reach listener on localhost if not rejected first
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 fn assert_rejects_invalid_before_connect(
     connect: impl Fn(&TcpConfig) -> Result<(), TransportError>,
 ) {
@@ -46,7 +47,7 @@ fn assert_rejects_invalid_before_connect(
 }
 
 // closed port refuses: error names remote and keeps OS kind
-#[cfg(feature = "tokio")]
+#[cfg(any(feature = "mio", feature = "tokio"))]
 fn assert_refused_is_connect_error(connect: impl Fn(&TcpConfig) -> Result<(), TransportError>) {
     use std::io;
 
@@ -60,6 +61,14 @@ fn assert_refused_is_connect_error(connect: impl Fn(&TcpConfig) -> Result<(), Tr
         }
         other => panic!("got {other:?}, want Connect refused"),
     }
+}
+
+#[cfg(feature = "mio")]
+#[test]
+fn mio_connect_rejects_invalid_config_before_connecting() {
+    use transport_socket::mio::MioTcp;
+
+    assert_rejects_invalid_before_connect(|cfg| MioTcp::connect(cfg).map(drop));
 }
 
 #[cfg(feature = "tokio")]
@@ -79,6 +88,14 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("tokio runtime")
 }
 
+#[cfg(feature = "mio")]
+#[test]
+fn mio_connect_refused_is_connect_error() {
+    use transport_socket::mio::MioTcp;
+
+    assert_refused_is_connect_error(|cfg| MioTcp::connect(cfg).map(drop));
+}
+
 #[cfg(feature = "tokio")]
 #[test]
 fn tokio_connect_refused_is_connect_error() {
@@ -86,4 +103,76 @@ fn tokio_connect_refused_is_connect_error() {
 
     let rt = runtime();
     assert_refused_is_connect_error(|cfg| rt.block_on(TcpStream::connect(cfg)).map(drop));
+}
+
+#[cfg(feature = "mio")]
+#[test]
+fn mio_partial_write_resumes_on_writable_readiness() {
+    use std::{
+        io::Read,
+        num::{NonZeroU32, NonZeroUsize},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use transport_core::StreamTrySend;
+    use transport_socket::mio::{MioTcp, ReadySet, ReadyToken};
+
+    // far above tiny send buffer plus peer receive buffer, so writes must stall
+    const LEN: usize = 1024 * 1024;
+    const TOKEN: ReadyToken = ReadyToken(0);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let mut cfg = TcpConfig::new(listener.local_addr().expect("listener addr"));
+    cfg.send_buf = NonZeroU32::new(4096);
+    // sub-MSS segments under Nagle wait on delayed ACKs: tens of ms each
+    cfg.nodelay = true;
+    let mut tcp = MioTcp::connect(&cfg).expect("connect");
+    let (mut peer, _) = listener.accept().expect("accept");
+    let data: Vec<u8> = (0..=250).cycle().take(LEN).collect();
+
+    // peer not reading: short writes, then would-block as `Ok(0)`
+    let mut sent = 0;
+    loop {
+        let n = tcp.try_send(&data[sent..]).expect("try_send");
+        if n == 0 {
+            break;
+        }
+        sent += n;
+        assert!(
+            sent < LEN,
+            "peer took whole {LEN} bytes without would-block"
+        );
+    }
+    assert!(sent > 0, "no short write before would-block");
+
+    let mut poll = ReadySet::new(NonZeroUsize::new(4).unwrap()).expect("ready set");
+    poll.register(&mut tcp, TOKEN).expect("register");
+    let reader = thread::spawn(move || {
+        peer.set_read_timeout(Some(Duration::from_secs(10)))?;
+        let mut got = vec![0; LEN];
+        peer.read_exact(&mut got).map(|()| got)
+    });
+
+    // edge-triggered: on each writable report, write until would-block again
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut reports = Vec::new();
+    while sent < LEN {
+        assert!(
+            Instant::now() < deadline,
+            "stalled at {sent} of {LEN} bytes"
+        );
+        poll.wait(Some(Duration::from_secs(1)), &mut reports)
+            .expect("wait");
+        if reports.iter().any(|r| r.token == TOKEN && r.writable) {
+            while sent < LEN {
+                match tcp.try_send(&data[sent..]).expect("try_send") {
+                    0 => break,
+                    n => sent += n,
+                }
+            }
+        }
+    }
+    let got = reader.join().expect("reader thread").expect("peer read");
+    assert!(got == data, "peer bytes differ from sent bytes");
 }
