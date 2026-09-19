@@ -10,6 +10,7 @@
 //! | Feature | Enables |
 //! | --- | --- |
 //! | `observability` | `telemetry` receive metrics and re-exported `observability_core` gate |
+//! | `testing` | `testing::conformance` suite for backend tests; unstable |
 
 pub mod config;
 pub mod decap;
@@ -17,6 +18,8 @@ pub mod error;
 pub mod pool;
 #[cfg(feature = "observability")]
 pub mod telemetry;
+#[cfg(feature = "testing")]
+pub mod testing;
 mod transport;
 
 pub use config::MulticastInterface;
