@@ -1,6 +1,6 @@
 //! Sync `UdpSocket` edges beyond conformance suite: bind failure keeps OS
 //! error, `send_to` never blocks and fails only with kind `WouldBlock`, frames
-//! carry real sender address.
+//! carry real sender address, multicast join reaches kernel.
 
 mod support;
 
@@ -13,7 +13,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use transport_core::{DatagramRecv, DatagramSend, FrameBatch, TransportError};
+use transport_core::{
+    DatagramRecv, DatagramSend, FrameBatch, Multicast, MulticastInterface, TransportError,
+};
 use transport_socket::{UdpConfig, UdpSocket};
 
 #[test]
@@ -91,4 +93,68 @@ fn frame_carries_sender_address() {
     let frame = batch.drain().next().expect("one frame");
     assert_eq!(frame.as_ref(), b"who");
     assert_eq!(frame.peer(), sender.local_addr().expect("sender addr"));
+}
+
+// loopback delivers group datagrams even without membership, so receipt proves
+// nothing; kernel refusing second join proves first one registered
+#[cfg(unix)]
+#[test]
+fn second_join_of_same_group_is_refused_by_kernel() {
+    let mut rx = UdpSocket::bind(&UdpConfig::new(SocketAddr::from((
+        Ipv4Addr::UNSPECIFIED,
+        0,
+    ))))
+    .expect("bind receiver");
+    let group = Ipv4Addr::new(239, 255, 73, 91).into();
+    let loopback = MulticastInterface {
+        v4: Some(Ipv4Addr::LOCALHOST),
+        ..MulticastInterface::default()
+    };
+    rx.join_multicast(group, loopback).expect("first join");
+    let again = rx.join_multicast(group, loopback);
+    assert!(
+        matches!(
+            again,
+            Err(TransportError::Io {
+                stage: "join_multicast",
+                ..
+            })
+        ),
+        "second join: {again:?}"
+    );
+}
+
+#[test]
+fn interface_of_other_family_is_invalid_config() {
+    let mut rx = support::receiver(NonZeroUsize::MIN);
+    let v6_scope = MulticastInterface {
+        v6_scope_id: Some(1),
+        ..MulticastInterface::default()
+    };
+    let v4 = rx.join_multicast(Ipv4Addr::new(239, 255, 73, 92).into(), v6_scope);
+    assert!(
+        matches!(
+            v4,
+            Err(TransportError::InvalidConfig {
+                field: "iface.v6_scope_id",
+                ..
+            })
+        ),
+        "IPv4 group, IPv6 scope: {v4:?}"
+    );
+    let v4_iface = MulticastInterface {
+        v4: Some(Ipv4Addr::LOCALHOST),
+        ..MulticastInterface::default()
+    };
+    let v6 = rx.join_multicast("ff15::7391".parse().expect("group"), v4_iface);
+    assert!(
+        matches!(
+            v6,
+            Err(TransportError::InvalidConfig {
+                field: "iface.v4",
+                ..
+            })
+        ),
+        "IPv6 group, IPv4 interface: {v6:?}"
+    );
 }
