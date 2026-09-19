@@ -1,0 +1,42 @@
+# Detached fuzz crate: own [workspace] table and Cargo.lock, excluded from the
+# parent workspace. Build via `cargo +nightly fuzz build`.
+[package]
+name = "polaris-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+client_moldudp = { path = "../crates/clients/moldudp" }
+client_soupbintcp = { path = "../crates/clients/soupbintcp", features = ["compressed"] }
+
+[[bin]]
+name = "moldudp_wire"
+path = "fuzz_targets/moldudp_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "soupbintcp_framing"
+path = "fuzz_targets/soupbintcp_framing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "soupbintcp_compressed"
+path = "fuzz_targets/soupbintcp_compressed.rs"
+test = false
+doc = false
+bench = false
+
+# libFuzzer needs debug info for useful crash traces.
+[profile.release]
+debug = 1
+
+[workspace]

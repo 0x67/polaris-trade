@@ -10,6 +10,8 @@ members = [
   "crates/clients/moldudp",
   "crates/clients/soupbintcp",
 ]
+# detached: own workspace and lock, built by cargo-fuzz on nightly
+exclude = ["fuzz"]
 
 [workspace.package]
 edition = "2024"
