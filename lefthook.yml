@@ -1,0 +1,67 @@
+# Local git hooks. Install once per clone: `lefthook install`.
+# Bypass a single commit with LEFTHOOK=0. Never bypass in shared work.
+# Docs: https://lefthook.dev
+
+# ---------------------------------------------------------------------------
+# pre-commit: cheap, changed-files-only. Run before every commit.
+# ---------------------------------------------------------------------------
+pre-commit:
+  parallel: true
+  commands:
+    branch-name:
+      # Reject direct commits to protected branches and enforce <type>/<slug> shape.
+      run: |
+        # symbolic-ref, not rev-parse: works before the first commit exists
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)
+        case "$branch" in
+          main|master) echo "commit directly to '$branch' blocked. Open feature branch."; exit 1 ;;
+        esac
+        echo "$branch" | grep -qE '^(feat|fix|chore|docs|refactor|test|ci|perf|build|style|revert)/[a-z0-9._/-]+$' \
+          || { echo "branch '$branch' does not match '<type>/<slug>' (e.g. feat/foo-bar)."; exit 1; }
+
+    fmt:
+      glob: "*.rs"
+      # nightly: rustfmt.toml sets unstable import options. Auto-format + re-stage
+      # so imports land standardized, not just checked. Needs nightly rustfmt.
+      run: cargo +nightly fmt --all
+      stage_fixed: true
+
+    clippy:
+      glob: "*.rs"
+      # feature list grows with workspace members, must match CI features job.
+      # Never every feature: DPDK driver feature cannot build on macOS.
+      run: cargo clippy --workspace --all-targets --features transport_core/testing,transport_core/observability -- -D warnings
+
+    lat-check:
+      run: lat check
+
+# ---------------------------------------------------------------------------
+# commit-msg: Conventional Commits gate. `convco` = pure-Rust linter.
+# ---------------------------------------------------------------------------
+commit-msg:
+  commands:
+    convco:
+      run: convco check --from-stdin < {1}
+
+# ---------------------------------------------------------------------------
+# pre-push: full test suite. Slow, so runs only on push.
+# ---------------------------------------------------------------------------
+pre-push:
+  commands:
+    no-push-protected:
+      # Blocks push while HEAD is on main/master. Uses branch check instead of
+      # git's pre-push stdin protocol because lefthook does not forward stdin
+      # to commands by default and `while read` would hang.
+      run: |
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)
+        case "$branch" in
+          main|master)
+            echo "direct push from '$branch' blocked. Switch to a feature branch first."
+            exit 1
+            ;;
+        esac
+
+    nextest:
+      # feature list grows with workspace members, must match CI features job.
+      # Never every feature: DPDK driver feature cannot build on macOS.
+      run: cargo nextest run --workspace --no-fail-fast --features transport_core/testing,transport_core/observability
