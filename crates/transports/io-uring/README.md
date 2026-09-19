@@ -7,13 +7,14 @@ On every other OS the crate compiles to nothing, so a workspace that depends on 
 ## Use
 
 ```rust,ignore
+use std::num::{NonZeroU32, NonZeroUsize};
 use transport_core::{DatagramRecv, FrameBatch, Multicast, MulticastInterface};
 use transport_io_uring::{IoUringConfig, IoUringUdp};
 
 let mut cfg = IoUringConfig::new("0.0.0.0:30001".parse()?);
 cfg.slots = NonZeroU32::new(4096).unwrap();
 let mut rx = IoUringUdp::bind(&cfg)?;
-rx.join_multicast(group, MulticastInterface::default())?;
+rx.join_multicast("233.54.12.1".parse()?, MulticastInterface::default())?;
 let mut out = FrameBatch::with_capacity(NonZeroUsize::new(64).unwrap());
 loop {
     rx.recv_burst(&mut out)?;
@@ -53,7 +54,8 @@ Detection runs at bind on the running kernel, not from its version string, so di
 - io_uring must be allowed: `kernel.io_uring_disabled` at 0 (or 1 with the process in `kernel.io_uring_group`), and no seccomp filter blocking `io_uring_setup`. Docker's default profile blocks it; bind then returns `Unavailable` with the OS error.
 - Kernels before 5.12 charge ring memory to `RLIMIT_MEMLOCK`; a low limit fails ring setup.
 - With every slot held by the caller, `recv_burst` returns `PoolExhausted` and counts `no_buffer`; the datagram waits in the socket buffer until a frame is dropped.
-- Dropping the transport cancels armed recvs and waits up to one second for them. If they do not end in time the receive memory is leaked, never freed under the kernel, and one `warn` event is logged.
+- Dropping the transport cancels armed recvs and waits up to one second for them. If they do not end in time the receive memory is leaked, never freed under the kernel, and one `warn` event is logged. The bounded wait needs `IORING_FEAT_EXT_ARG` (5.11); on older kernels the memory leaks whenever recvs are still armed at drop, with the warning.
+- No capability is needed once io_uring is allowed.
 
 ## Features
 
@@ -71,4 +73,4 @@ cargo nextest run -p transport_io_uring --run-ignored ignored-only
 
 ## License
 
-MIT OR Apache-2.0.
+MIT OR Apache-2.0, at your option.

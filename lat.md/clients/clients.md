@@ -2,6 +2,8 @@
 
 Protocol clients under `crates/clients/`, built on the transport crates.
 
+Both depend on [[core]] alone and take any backend through its traits; their tests use [[socket]] and the core mock driver.
+
 - [[moldudp]]: MoldUDP64 receiver over caller-built legs, with optional gap recovery.
 - [[soupbintcp]]: SoupBinTCP v3.0 session, async and synchronous.
 

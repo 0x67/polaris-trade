@@ -12,11 +12,17 @@ DPDK poll-mode receive for market-data feeds, built on the traits in `transport_
 
 Backend name (metric label): `dpdk`. Receive only: no send trait, no `Multicast`.
 
+The crate needs no privilege of its own. What the EAL needs (hugepages or `--no-huge`, a NIC bound to a DPDK-capable driver, or a virtual device) is part of the application's EAL setup.
+
 ## Attach contract
 
 The crate never calls `rte_eal_init` and configures nothing. The caller initialises the EAL, creates the mempool, configures the port, sets up the receive queue on that mempool and starts the port, then attaches:
 
 ```rust,ignore
+use std::num::NonZeroUsize;
+use transport_core::decap::UdpDecap;
+use transport_dpdk::{DpdkConfig, DpdkL2};
+
 let cfg = DpdkConfig::new(port, queue); // burst defaults to 32
 // SAFETY: EAL initialised; `port` started with `queue` set up on `mempool`;
 // `mempool` has neither RTE_MEMPOOL_F_SC_GET nor RTE_MEMPOOL_F_SP_PUT;
@@ -65,4 +71,4 @@ They need the DPDK pcap PMD (Debian: `librte-net-pcap25`, pulled in by `libdpdk-
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+MIT OR Apache-2.0, at your option.

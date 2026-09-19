@@ -26,14 +26,16 @@ On a kernel-bypass L2 leg the requester is still a kernel UDP socket. An AF_XDP 
 
 ## Usage
 
-```rust
+```rust,ignore
 use client_moldudp::{MIN_LEG_POOL_CAPACITY, MoldUdpOutcome, MoldUdpReceiver, MoldUdpReceiverConfig};
 use smallvec::smallvec;
+use transport_core::{Multicast, MulticastInterface};
 use transport_socket::{UdpConfig, UdpSocket};
 
 let mut cfg = UdpConfig::new("0.0.0.0:30001".parse()?);
 cfg.slab_count = MIN_LEG_POOL_CAPACITY.try_into()?;
-let leg = UdpSocket::bind(&cfg)?; // join the multicast group here
+let mut leg = UdpSocket::bind(&cfg)?;
+leg.join_multicast("233.54.12.1".parse()?, MulticastInterface::default())?;
 let requester = UdpSocket::bind(&UdpConfig::new("0.0.0.0:0".parse()?))?;
 
 let mut rx = MoldUdpReceiver::from_legs(&MoldUdpReceiverConfig::default(), smallvec![leg])?
@@ -48,6 +50,12 @@ loop {
     }
 }
 ```
+
+The legs can be any `DatagramRecv`: `transport_socket` types on Linux, macOS and Windows, `transport_io_uring::IoUringUdp`, or `transport_core::decap::UdpDecap` over `transport_afxdp` or `transport_dpdk`. The receiver needs no privilege of its own; each leg brings its own platform and privilege requirements.
+
+## Config
+
+`MoldUdpReceiverConfig` is serde (JSON or TOML) and every field defaults: `max_rerequests_per_gap_per_sec` (4), `gap_confirm_window` (5 ms, multi-leg only; humantime string such as `"5ms"`), and `start_sequence` (`None` adopts the first packet's sequence; set it to resume mid-stream without treating the backlog as one gap). Socket options live on the legs.
 
 ## Features
 
@@ -74,4 +82,4 @@ This crate emits [`tracing`](https://docs.rs/tracing) events at state transition
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+MIT OR Apache-2.0, at your option.

@@ -12,13 +12,25 @@ Linux AF_XDP receive for market-data feeds, over a raw XSK driver written agains
 `AfxdpL2::bind(&AfxdpConfig)` validates the config before any allocation or syscall, then opens the socket, registers one `IndexPool` region as UMEM, maps the fill and receive rings, hands every frame to the kernel, binds the queue and installs the redirect. The payload of each frame starts at the descriptor's address; a descriptor running past its frame is counted as `truncated` and its frame recycled.
 
 ```rust,ignore
+use std::num::NonZeroUsize;
+use transport_afxdp::{AfxdpConfig, AfxdpL2, XdpMode, XdpRedirect};
+use transport_core::{Multicast, MulticastInterface, decap::UdpDecap};
+
 let mut cfg = AfxdpConfig::new("eth0", 0);   // interface, queue
 cfg.redirect = XdpRedirect::Builtin { mode: XdpMode::Drv };
 let mut feed = UdpDecap::new(AfxdpL2::bind(&cfg)?, 26_400, None, NonZeroUsize::new(64).unwrap());
-feed.join_multicast(group, MulticastInterface::default())?;
+feed.join_multicast("233.54.12.1".parse()?, MulticastInterface::default())?;
 ```
 
-Config fields: `frames` (UMEM frames and ring entries, power of two, default 4096), `frame_size` (power of two, 2048 up to the page size, default 2048), `headroom` (bytes ahead of the kernel's 256-byte XDP headroom, default 0), `zero_copy` (default off), `redirect`.
+`feed` is a `DatagramRecv` of UDP payloads to port 26400, ready for a consumer such as `client_moldudp`.
+
+Config fields: `frames` (UMEM frames and ring entries, power of two, default 4096), `frame_size` (power of two, 2048 up to the page size, default 2048), `headroom` (bytes ahead of the kernel's 256-byte XDP headroom, default 0), `zero_copy` (default off), `redirect` (default `Builtin { mode: Skb }`).
+
+| Feature | Enables |
+| --- | --- |
+| `observability` | receive and drop metrics through `transport_core::telemetry` |
+
+Linux only: on other targets the crate is empty, so a workspace depending on it still builds there.
 
 ## Redirect modes
 
@@ -65,7 +77,7 @@ In copy mode `recv_burst` makes no syscall, apart from the counter read every 10
 | `truncated` | descriptors running past their frame, counted by the driver |
 | `syscalls` | wakeup kicks |
 
-With `observability`, the bypass shell reports these every 1024 calls as `transport.recv.drops`, backend label `afxdp`.
+With `observability`, the bypass shell reports the increases of the three drop counters every 1024 calls as `transport.recv.drops`, backend label `afxdp`; `UdpDecap` adds its filtered frames as reason `decap_filtered`.
 
 ## Multicast
 
@@ -74,6 +86,7 @@ With `observability`, the bypass shell reports these every 1024 calls as `transp
 ## Limitations
 
 - Native mode was verified only on veth, and zero-copy not at all; both stay opt-in until run on a real NIC.
+- Zero-copy teardown: the NIC may still write the UMEM after the socket closes, until the kernel's deferred teardown ends, and the transport frees the UMEM on drop. Copy mode is unaffected.
 - A MoldUDP re-request reply arriving on a redirected queue is captured by the AF_XDP socket, not the requester's kernel socket. Steer re-request replies to another queue with a flow rule on the requester's port, or bind the requester to the feed's destination port with `UdpDecap`'s `dst_ip` filter unset so the unicast reply passes through the leg.
 - `UdpDecap` handles IPv4 only.
 
@@ -83,4 +96,4 @@ In-crate tests are syscall-free: descriptor mapping (payload at the descriptor a
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+MIT OR Apache-2.0, at your option.
