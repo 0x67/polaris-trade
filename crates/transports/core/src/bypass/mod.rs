@@ -33,7 +33,8 @@ pub enum Reap {
     Exhausted,
 }
 
-/// Driver counters, each monotonic since driver creation.
+/// Driver counters, each monotonic. May start above zero (DPDK port counters
+/// count from port start): shell reports only increases since its first read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DriverStats {
     /// Frames lost because no buffer was free.
