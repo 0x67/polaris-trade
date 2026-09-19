@@ -5,6 +5,7 @@ members = [
   "crates/transports/core",
   "crates/transports/socket",
   "crates/transports/io-uring",
+  "crates/transports/afxdp",
 ]
 
 [workspace.package]

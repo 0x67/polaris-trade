@@ -886,6 +886,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "transport_afxdp"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "socket2",
+ "tracing",
+ "transport_core",
+]
+
+[[package]]
 name = "transport_core"
 version = "0.1.0"
 dependencies = [
