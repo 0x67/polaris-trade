@@ -522,6 +522,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
 name = "plotters"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -905,6 +911,15 @@ dependencies = [
  "metrics-util",
  "observability-core",
  "thiserror",
+]
+
+[[package]]
+name = "transport_dpdk"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "transport_core",
 ]
 
 [[package]]

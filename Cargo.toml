@@ -6,6 +6,7 @@ members = [
   "crates/transports/socket",
   "crates/transports/io-uring",
   "crates/transports/afxdp",
+  "crates/transports/dpdk",
 ]
 
 [workspace.package]
@@ -29,6 +30,10 @@ libc = "0.2.189"
 # 0.7.13 kept from the old backend; bump only after reading the changelog
 io-uring = "0.7.13"
 tracing = "0.1.44"
+
+# build only
+cc = "1.4.7"
+pkg-config = "0.3.34"
 
 # dev only
 allocation-counter = "0.8.1"

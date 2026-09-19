@@ -1,0 +1,31 @@
+[package]
+name = "transport_dpdk"
+version = "0.1.0"
+description = "DPDK poll-mode receive over a caller-initialised EAL, one mbuf per frame"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core (through transport_core) blocks crates.io until it is published
+publish = false
+
+[dependencies]
+transport_core = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
+pkg-config = { workspace = true }
+
+[features]
+default = []
+# links libdpdk through a C shim; Linux with DPDK dev package only
+driver-dpdk = []
+observability = ["transport_core/observability"]
+
+[dev-dependencies]
+transport_core = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true
