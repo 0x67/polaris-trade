@@ -1,0 +1,60 @@
+# client_soupbintcp
+
+SoupBinTCP 3.0 client: login handshake, sequenced and unsequenced framing, heartbeats both ways, and an optional compressed variant, over any stream transport, with or without an async runtime.
+
+## What it is
+
+`SoupBinClient<T>` runs one SoupBinTCP 3.0 session state machine (login state, sequence, outbound buffer, heartbeat deadlines) behind two thin drivers:
+
+| API | Bound on `T` | Example transport |
+| --- | --- | --- |
+| sync: `start`, `poll(now)`, `queue_unsequenced`, `queue_logout` | `StreamRecv + StreamTrySend` | `transport_socket::mio::MioTcp`, `transport_socket::tokio::TcpStream` |
+| async: `connect`, `recv`, `recv_managed`, `send_unsequenced`, `logout`, `tick_heartbeat` | `StreamRecv + StreamSend + AsyncReady` | `transport_socket::tokio::TcpStream` |
+
+`next_deadline()` works under either.
+
+## Sync session
+
+`start` queues the login request. Each `poll(now)` resumes pending partial writes, queues a client heartbeat when the send deadline passes (reported as `HeartbeatSent`), then receives and dispatches until it has a message or the socket is drained. It yields sequenced data as `SoupBinMessage::Data` and every lifecycle signal as `SoupBinMessage::Event`: `LoginAccepted`, `LoginRejected`, `HeartbeatReceived`, `HeartbeatSent`, `HeartbeatTimeout`, `EndOfSession`. `Ok(None)` means nothing happened.
+
+A pinned busy-poll loop is `loop { if let Some(msg) = client.poll(Instant::now())? { .. } }`. A parked loop registers the `MioTcp` in a `ReadySet` before `start`, then waits until `next_deadline()` whenever `poll` returns `None`.
+
+After logout, rejected login, heartbeat timeout or end of session the session is closed: `poll` flushes what is still queued (the logout request), then returns `Err(EndOfSession)`. A server closing without end of session is `Err(Transport(PeerClosed))`.
+
+## Async session
+
+`connect` completes the login handshake (`LoginRejected` and `LoginTimeout` are errors there). `recv` yields sequenced data and events; `recv_managed` (feature `tokio`) also sends client heartbeats on its own and reports `HeartbeatTimeout`; other runtimes drive `recv`, `next_deadline` and `tick_heartbeat`.
+
+## Design
+
+Receive lands transport bytes straight into the decode buffer's spare capacity through `StreamRecv::recv_into`, whose `unsafe` trait contract guarantees the returned length was initialised, so the uncompressed stream has one copy and `BytesMut` framing stays refcount-free after. The compressed variant adds an inflate step, which needs a contiguous compressed chunk. Outbound bytes queue in one buffer whose front is where a partial write resumes, shared by both drivers.
+
+## Features
+
+- `compressed` (off by default): Nasdaq compressed variant, via `flate2`. Server to client only; client writes stay plain.
+- `tokio` (off by default): `recv_managed`.
+- `observability` (off by default): message, session and heartbeat counters through `observability-core`.
+
+## Protocol specification
+
+SoupBinTCP and its compressed variant are Nasdaq protocols. Obtain the
+specifications from
+[Nasdaq market data specifications](https://data.nasdaq.com/market-data-specifications).
+Spec documents are not redistributed in this repository.
+
+## Building and testing
+
+```bash
+cargo nextest run -p client_soupbintcp
+cargo nextest run -p client_soupbintcp --features tokio,compressed,observability
+```
+
+One protocol table (login accepted and rejected, login timeout, sequenced data, heartbeats both ways, heartbeat timeout, partial writes, logout, end of session, peer close) runs through the sync API over `MioTcp` and through the async API over tokio `TcpStream`, against a local mock server.
+
+## Logging
+
+This crate emits [`tracing`](https://docs.rs/tracing) events at session transitions only (login, logout, end of session, timeouts), never per message. Install any subscriber to see them; filter with `RUST_LOG=client_soupbintcp=debug`.
+
+## License
+
+Licensed under either of Apache License, Version 2.0 or MIT license at your option.

@@ -1,0 +1,41 @@
+[package]
+name = "client_soupbintcp"
+version = "0.1.0"
+description = "SoupBinTCP v3.0 client with wire codec, session state, heartbeats, and compressed variant"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core blocks crates.io until it is published
+publish = false
+
+[dependencies]
+transport_core = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+humantime-serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+flate2 = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["time", "macros"] }
+observability-core = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+
+[features]
+default = []
+compressed = ["dep:flate2"]
+tokio = ["dep:tokio"]
+observability = ["dep:observability-core", "dep:metrics", "transport_core/observability"]
+
+[dev-dependencies]
+transport_core = { workspace = true, features = ["testing"] }
+transport_socket = { workspace = true, features = ["tokio", "mio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "io-util"] }
+allocation-counter = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+[lints]
+workspace = true

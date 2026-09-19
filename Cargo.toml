@@ -8,6 +8,7 @@ members = [
   "crates/transports/afxdp",
   "crates/transports/dpdk",
   "crates/clients/moldudp",
+  "crates/clients/soupbintcp",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ humantime-serde = "1.1.1"
 bytes = "1.12.1"
 smallvec = { version = "1.16.1", features = ["const_generics"] }
 bitvec = "1.1.1"
+flate2 = "1.1.10"
 
 # build only
 cc = "1.4.7"
