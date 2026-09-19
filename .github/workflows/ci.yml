@@ -1,0 +1,11 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # feature, driver and Miri jobs land once their crates exist
+  rust:
+    uses: 0x67/ci/.github/workflows/rust-ci.yml@main

@@ -1,0 +1,9 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  lint:
+    uses: 0x67/ci/.github/workflows/pr-title.yml@main
