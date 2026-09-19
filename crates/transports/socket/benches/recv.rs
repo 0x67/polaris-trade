@@ -1,5 +1,6 @@
 //! Socket receive benchmarks on sync `UdpSocket`: drain of pre-filled socket
-//! (sends outside timed region) at several burst sizes, and idle spin.
+//! (sends outside timed region) at several burst sizes, and idle spin; with
+//! feature `observability`, idle spin again with metrics gate on.
 
 use std::{
     hint::black_box,
@@ -67,5 +68,22 @@ fn idle_spin(c: &mut Criterion) {
     });
 }
 
+// empty burst returns before gate read, so this should match `udp_recv_idle`
+#[cfg(feature = "observability")]
+fn idle_spin_metrics_on(c: &mut Criterion) {
+    use transport_core::observability_core;
+
+    observability_core::set_metrics_enabled(true);
+    observability_core::refresh_thread_gate();
+    let mut rx = receiver();
+    let mut out = FrameBatch::with_capacity(NonZeroUsize::new(32).unwrap());
+    c.bench_function("udp_recv_idle_metrics_on", |b| {
+        b.iter(|| black_box(rx.recv_burst(&mut out).expect("recv")));
+    });
+}
+
+#[cfg(not(feature = "observability"))]
 criterion_group!(benches, prefilled_drain, idle_spin);
+#[cfg(feature = "observability")]
+criterion_group!(benches, prefilled_drain, idle_spin, idle_spin_metrics_on);
 criterion_main!(benches);
