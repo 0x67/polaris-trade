@@ -10,7 +10,7 @@
 //!
 //! ```no_run
 //! # use std::net::SocketAddr;
-//! # use client_moldudp::{MIN_LEG_POOL_CAPACITY, MoldUdpReceiver, MoldUdpReceiverConfig};
+//! # use client_moldudp::{MIN_LEG_POOL_CAPACITY, MoldUdpError, MoldUdpReceiver, MoldUdpReceiverConfig};
 //! # use smallvec::smallvec;
 //! # use transport_socket::{UdpConfig, UdpSocket};
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,8 +22,11 @@
 //! let mut rx = MoldUdpReceiver::from_legs(&MoldUdpReceiverConfig::default(), smallvec![leg])?
 //!     .with_requester(requester, server);
 //! loop {
-//!     if let Some(outcome) = rx.poll()? {
-//!         // borrowed until next poll
+//!     match rx.poll() {
+//!         Ok(Some(outcome)) => drop(outcome), // borrowed until next poll
+//!         // gap reported for this call only; keep polling
+//!         Ok(None) | Err(MoldUdpError::GapDetected) => {}
+//!         Err(e) => return Err(e.into()),
 //!     }
 //! }
 //! # }
