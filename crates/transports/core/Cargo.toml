@@ -1,0 +1,29 @@
+[package]
+name = "transport_core"
+version = "0.1.0"
+description = "Transport traits, frame batches, buffer pools, errors and the kernel-bypass shell shared by every backend"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+# optional git dep on observability-core blocks crates.io until it is published
+publish = false
+
+[dependencies]
+thiserror = { workspace = true }
+observability-core = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+
+[features]
+default = []
+# metrics seam; off by default, every backend forwards its own `observability`
+observability = ["dep:observability-core", "dep:metrics"]
+# conformance suite and mock driver; unstable, tests only
+testing = []
+
+[dev-dependencies]
+metrics-util = { workspace = true }
+
+[lints]
+workspace = true

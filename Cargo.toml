@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 # literal list, no globs; each crate lands together with its manifest
-members = []
+members = ["crates/transports/core"]
 
 [workspace.package]
 edition = "2024"
@@ -11,10 +11,15 @@ repository = "https://github.com/0x67/polaris-trade"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+transport_core = { path = "crates/transports/core" }
+
 # publish = false upstream: any crate enabling this cannot be published to crates.io until it is
 observability-core = { git = "https://github.com/0x67/observability", tag = "observability-core-v0.2.1" }
 metrics = "0.24"
 thiserror = "2.0.18"
+
+# dev only
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"
