@@ -1,0 +1,36 @@
+[package]
+name = "transport_io_uring"
+version = "0.1.0"
+description = "io_uring UDP receive for Linux: legacy provided buffers, buffer ring or multishot, picked at run time"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core (through transport_core) blocks crates.io until it is published
+publish = false
+
+[dependencies]
+transport_core = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true }
+libc = { workspace = true }
+socket2 = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+observability = ["transport_core/observability"]
+
+[dev-dependencies]
+transport_core = { workspace = true, features = ["testing"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "classify"
+harness = false
+
+[lints]
+workspace = true

@@ -1,7 +1,11 @@
 [workspace]
 resolver = "3"
 # literal list, no globs; each crate lands together with its manifest
-members = ["crates/transports/core", "crates/transports/socket"]
+members = [
+  "crates/transports/core",
+  "crates/transports/socket",
+  "crates/transports/io-uring",
+]
 
 [workspace.package]
 edition = "2024"
@@ -21,6 +25,9 @@ socket2 = { version = "0.6.5", features = ["all"] }
 mio = { version = "1.2.3", default-features = false, features = ["net", "os-poll"] }
 tokio = { version = "1.53.1", default-features = false }
 libc = "0.2.189"
+# 0.7.13 kept from the old backend; bump only after reading the changelog
+io-uring = "0.7.13"
+tracing = "0.1.44"
 
 # dev only
 allocation-counter = "0.8.1"
