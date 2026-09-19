@@ -6,6 +6,46 @@ on:
   pull_request:
 
 jobs:
-  # feature, driver and Miri jobs land once their crates exist
+  # whole workspace, default features. public repo: full 3-OS matrix on
+  # GitHub-hosted runners.
   rust:
     uses: 0x67/ci/.github/workflows/rust-ci.yml@main
+
+  # same workspace with every host-buildable feature on. list matches
+  # lefthook.yml verbatim; driver-dpdk stays out, macOS/Windows have no libdpdk.
+  rust-features:
+    uses: 0x67/ci/.github/workflows/rust-ci.yml@main
+    with:
+      concurrency-key: features
+      workspace-args: --features transport_core/testing,transport_core/observability,transport_socket/tokio,transport_socket/mio,transport_socket/observability,transport_io_uring/observability,transport_afxdp/observability,transport_dpdk/observability,client_moldudp/observability,client_soupbintcp/tokio,client_soupbintcp/compressed,client_soupbintcp/observability
+
+  # DPDK driver leg: needs libdpdk, Linux only. Checked apart from the
+  # workspace jobs above so a missing system lib never blocks the portable path.
+  dpdk:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      extra-commands: |
+        sudo apt-get update && sudo apt-get install -y libdpdk-dev libpcap-dev pkg-config
+        cargo clippy -p transport_dpdk --all-targets --locked --features driver-dpdk -- -D warnings
+        cargo test -p transport_dpdk --locked --features driver-dpdk --no-run
+
+  # pool and ring arithmetic under Miri. one job per slice: a shared miri-args
+  # string would apply one crate's test filter to the other's tests too.
+  miri-pool:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p transport_core --test miri_pool
+      advisory: true
+
+  miri-bypass:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p transport_core --features testing --test bypass
+      advisory: true
+
+  # runner is already the Linux target Miri interprets here, so no --target flag.
+  miri-afxdp-ring:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p transport_afxdp --lib ring
+      advisory: true

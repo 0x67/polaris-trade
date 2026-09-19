@@ -1,0 +1,34 @@
+name: fuzz
+
+# Wire-codec fuzz targets for moldudp and soupbintcp. check builds and replays
+# the committed corpus on PRs touching wire or fuzz sources, blocking. discover
+# runs a time-bounded search only when wire or fuzz code lands on main, plus
+# manual dispatch, advisory. No schedule.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/clients/moldudp/src/**'
+      - 'crates/clients/soupbintcp/src/**'
+      - 'fuzz/**'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/clients/moldudp/src/**'
+      - 'crates/clients/soupbintcp/src/**'
+      - 'fuzz/**'
+  workflow_dispatch:
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    uses: 0x67/ci/.github/workflows/rust-fuzz.yml@main
+    with:
+      mode: check
+      advisory: false
+
+  discover:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    uses: 0x67/ci/.github/workflows/rust-fuzz.yml@main
+    with:
+      mode: discover
