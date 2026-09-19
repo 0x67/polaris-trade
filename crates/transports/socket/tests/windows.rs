@@ -1,5 +1,6 @@
 //! Winsock quirks the receive path absorbs: `WSAECONNRESET` after unreachable
-//! send, datagram longer than slab (`WSAEMSGSIZE`).
+//! send, datagram longer than slab (`WSAEMSGSIZE`), large queued datagram
+//! under `AsyncReady` probe.
 #![cfg(windows)]
 
 mod support;
@@ -59,4 +60,22 @@ fn datagram_longer_than_slab_is_skipped_not_fatal() {
     tx.send_to(b"fits", to).expect("send");
 
     assert_eq!(receive(&mut rx, 1), [b"fits".to_vec()]);
+}
+
+#[cfg(feature = "tokio")]
+#[tokio::test]
+async fn large_queued_datagram_makes_async_udp_ready() {
+    use transport_core::AsyncReady;
+    use transport_socket::tokio::AsyncUdp;
+
+    let mut udp = AsyncUdp::from_socket(support::receiver(NonZeroUsize::new(4).unwrap()))
+        .expect("register with runtime");
+    support::sender()
+        .send_to(&[0x11; 1400], udp.local_addr().expect("local addr"))
+        .expect("send");
+    tokio::time::timeout(Duration::from_secs(5), udp.ready())
+        .await
+        .expect("ready within 5 s")
+        .expect("ready, not WSAEMSGSIZE");
+    assert_eq!(receive(&mut udp, 1), [vec![0x11; 1400]]);
 }

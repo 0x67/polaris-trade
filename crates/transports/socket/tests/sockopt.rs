@@ -108,3 +108,43 @@ fn reuse_port_on_windows_is_invalid_config() {
         })
     ));
 }
+
+// same config through either TCP type yields same kernel options
+#[cfg(feature = "tokio")]
+fn assert_tcp_options_apply<T>(connect: impl FnOnce(&transport_socket::TcpConfig) -> T)
+where
+    for<'a> SockRef<'a>: From<&'a T>,
+{
+    let listener = std::net::TcpListener::bind(loopback()).expect("bind listener");
+    // free port for local bind: probe then release
+    let local = std::net::TcpListener::bind(loopback())
+        .and_then(|l| l.local_addr())
+        .expect("free port");
+    let mut cfg = transport_socket::TcpConfig::new(listener.local_addr().expect("addr"));
+    cfg.local = Some(local);
+    cfg.nodelay = true;
+    cfg.recv_buf = Some(BUF);
+    cfg.send_buf = Some(BUF);
+    let tcp = connect(&cfg);
+    let sock = SockRef::from(&tcp);
+    let control = std::net::TcpStream::connect(cfg.remote).expect("control connection");
+    // explicit impl: bound on `T` would otherwise steer inference
+    let control = <SockRef<'_> as From<&std::net::TcpStream>>::from(&control);
+
+    assert!(sock.tcp_nodelay().expect("TCP_NODELAY"), "TCP_NODELAY");
+    assert_buffers(&sock, &control, "tcp");
+    let bound = sock.local_addr().expect("getsockname").as_socket();
+    assert_eq!(bound, Some(local), "local bind");
+}
+
+#[cfg(feature = "tokio")]
+#[test]
+fn tokio_tcp_options_read_back_from_kernel() {
+    use transport_socket::tokio::TcpStream;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    assert_tcp_options_apply(|cfg| rt.block_on(TcpStream::connect(cfg)).expect("connect"));
+}

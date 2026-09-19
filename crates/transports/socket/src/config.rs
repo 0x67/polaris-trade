@@ -1,6 +1,8 @@
 //! Socket configs. Required fields are `new` arguments, the rest public with
 //! defaults. Constructors call `validate` before first allocation or syscall.
 
+#[cfg(feature = "tokio")]
+use std::time::Duration;
 use std::{
     net::SocketAddr,
     num::{NonZeroU32, NonZeroUsize},
@@ -12,6 +14,8 @@ use transport_core::{TransportError, config::validate};
 const C_INT_MAX: u32 = i32::MAX.unsigned_abs();
 const DEFAULT_SLAB_COUNT: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
 const DEFAULT_SLAB_SIZE: NonZeroUsize = NonZeroUsize::new(2048).unwrap();
+#[cfg(feature = "tokio")]
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// UDP socket: bind address, socket options, receive pool shape.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +71,57 @@ impl UdpConfig {
                 });
             }
             validate::at_most("busy_poll_us", us, C_INT_MAX)?;
+        }
+        buffer_sizes(self.recv_buf, self.send_buf)
+    }
+}
+
+/// TCP stream: remote peer, optional local bind, socket options.
+#[cfg(feature = "tokio")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TcpConfig {
+    /// Peer to connect to. Unspecified IP or port 0 is `InvalidConfig`.
+    pub remote: SocketAddr,
+    /// Local address to bind before connecting; `None` lets OS pick.
+    pub local: Option<SocketAddr>,
+    /// `SO_RCVBUF` bytes; `None` keeps OS default. Linux reports double.
+    pub recv_buf: Option<NonZeroU32>,
+    /// `SO_SNDBUF` bytes; `None` keeps OS default. Linux reports double.
+    pub send_buf: Option<NonZeroU32>,
+    /// `TCP_NODELAY`. Default off.
+    pub nodelay: bool,
+    /// Bound on handshake. Zero is `InvalidConfig`. Default 5 s.
+    pub connect_timeout: Duration,
+}
+
+#[cfg(feature = "tokio")]
+impl TcpConfig {
+    /// Config connecting to `remote`, every option at default.
+    pub fn new(remote: SocketAddr) -> Self {
+        Self {
+            remote,
+            local: None,
+            recv_buf: None,
+            send_buf: None,
+            nodelay: false,
+            connect_timeout: DEFAULT_CONNECT_TIMEOUT,
+        }
+    }
+
+    // unspecified remote would reach localhost on Linux, so reject it
+    pub(crate) fn validate(&self) -> Result<(), TransportError> {
+        if self.remote.ip().is_unspecified() || self.remote.port() == 0 {
+            return Err(TransportError::InvalidConfig {
+                field: "remote",
+                reason: "unspecified address or port 0",
+            });
+        }
+        if self.connect_timeout.is_zero() {
+            return Err(TransportError::InvalidConfig {
+                field: "connect_timeout",
+                reason: "zero timeout",
+            });
         }
         buffer_sizes(self.recv_buf, self.send_buf)
     }

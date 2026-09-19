@@ -8,6 +8,8 @@ use std::num::NonZeroU32;
 use socket2::{Domain, Protocol, Socket, Type};
 use transport_core::TransportError;
 
+#[cfg(feature = "tokio")]
+use crate::TcpConfig;
 use crate::{UdpConfig, io_error};
 
 /// Non-blocking UDP socket, options applied, bound to `cfg.bind`.
@@ -40,6 +42,28 @@ pub(crate) fn udp(cfg: &UdpConfig) -> Result<Socket, TransportError> {
             addr: cfg.bind,
             error,
         })?;
+    Ok(sock)
+}
+
+/// Unconnected TCP socket, options applied, bound to `cfg.local` when set.
+/// Caller picks blocking mode and connects.
+#[cfg(feature = "tokio")]
+pub(crate) fn tcp(cfg: &TcpConfig) -> Result<Socket, TransportError> {
+    let sock = Socket::new(
+        Domain::for_address(cfg.remote),
+        Type::STREAM,
+        Some(Protocol::TCP),
+    )
+    .map_err(io_error("socket"))?;
+    buffers(&sock, cfg.recv_buf, cfg.send_buf)?;
+    if cfg.nodelay {
+        sock.set_tcp_nodelay(true)
+            .map_err(io_error("setsockopt(TCP_NODELAY)"))?;
+    }
+    if let Some(local) = cfg.local {
+        sock.bind(&local.into())
+            .map_err(|error| TransportError::Bind { addr: local, error })?;
+    }
     Ok(sock)
 }
 

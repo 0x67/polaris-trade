@@ -150,6 +150,28 @@ pub(crate) fn peek_ready(sock: &Socket) -> io::Result<()> {
     }
 }
 
+/// Stream read shared by TCP types: empty `dst` and would-block are `Ok(0)`,
+/// zero-byte read of non-empty `dst` is `PeerClosed`. `Ok(n)` means `recv`
+/// initialised `dst[..n]`.
+#[cfg(feature = "tokio")]
+pub(crate) fn stream(
+    dst: &mut [MaybeUninit<u8>],
+    recv: impl FnOnce(&mut [MaybeUninit<u8>]) -> io::Result<usize>,
+) -> Result<usize, TransportError> {
+    if dst.is_empty() {
+        return Ok(0);
+    }
+    match recv(dst) {
+        Ok(0) => Err(TransportError::PeerClosed),
+        Ok(n) => Ok(n),
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
+        Err(error) => Err(TransportError::Io {
+            stage: "recv",
+            error,
+        }),
+    }
+}
+
 // slab bytes as socket2 receive buffer
 fn uninit(buf: &mut [u8]) -> &mut [MaybeUninit<u8>] {
     // SAFETY: `MaybeUninit<u8>` has `u8` layout; pointer and length come from
