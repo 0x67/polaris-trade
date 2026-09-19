@@ -1,0 +1,6 @@
+# Rust toolchain configuration
+# This file specifies the Rust version for development
+
+[toolchain]
+channel = "1.96.1"
+components = ["rustfmt", "clippy", "rust-src", "llvm-tools"]

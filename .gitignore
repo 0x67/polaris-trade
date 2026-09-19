@@ -1,0 +1,47 @@
+# Rust build output
+/target
+**/target
+Cargo.lock.bak
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE (workspace-level VS Code files are checked in; local overrides are not)
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.vscode/*.local.json
+.vscode/settings.json
+.vscode/mcp.json
+.mcp.json
+
+# Coverage / profiling
+tarpaulin-report.*
+lcov.info
+flamegraph.svg
+perf.data*
+*.profraw
+
+# release-plz work dir
+.release-plz/
+
+# lefthook local override (checked-in lefthook.yml stays the shared config)
+lefthook-local.yml
+
+# lat.md caches (if any land at repo root)
+.lat/
+
+# Internal spec file
+/specs
+# release-plz generate-schema output (editor autocomplete only)
+.schema/
