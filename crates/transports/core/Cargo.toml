@@ -23,7 +23,12 @@ observability = ["dep:observability-core", "dep:metrics"]
 testing = []
 
 [dev-dependencies]
+criterion = { workspace = true }
 metrics-util = { workspace = true }
+
+[[bench]]
+name = "pool"
+harness = false
 
 [lints]
 workspace = true
