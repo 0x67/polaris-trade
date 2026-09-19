@@ -9,3 +9,4 @@ This directory defines the high-level concepts, business logic, and architecture
 One page per crate area; each describes the code as built.
 
 - [[transports]]: transport crates, one page per crate.
+- [[clients]]: protocol clients built on the transports, one page per crate.
