@@ -12,6 +12,7 @@
 //! | `observability` | `telemetry` receive metrics and re-exported `observability_core` gate |
 
 pub mod config;
+pub mod decap;
 pub mod error;
 pub mod pool;
 #[cfg(feature = "observability")]
