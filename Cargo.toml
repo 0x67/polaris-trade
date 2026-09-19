@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 # literal list, no globs; each crate lands together with its manifest
-members = ["crates/transports/core"]
+members = ["crates/transports/core", "crates/transports/socket"]
 
 [workspace.package]
 edition = "2024"
@@ -17,6 +17,10 @@ transport_core = { path = "crates/transports/core" }
 observability-core = { git = "https://github.com/0x67/observability", tag = "observability-core-v0.2.1" }
 metrics = "0.24"
 thiserror = "2.0.18"
+socket2 = { version = "0.6.5", features = ["all"] }
+mio = { version = "1.2.3", default-features = false, features = ["net", "os-poll"] }
+tokio = { version = "1.53.1", default-features = false }
+libc = "0.2.189"
 
 # dev only
 allocation-counter = "0.8.1"
