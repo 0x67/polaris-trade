@@ -74,6 +74,12 @@ impl IndexPool {
         }
     }
 
+    /// Bytes per slot, as passed to [`new`](Self::new).
+    #[inline]
+    pub fn stride(&self) -> u32 {
+        self.shared.stride
+    }
+
     /// Region base, for kernel or NIC registration. Slot `s` starts at
     /// `base + s * stride`.
     ///

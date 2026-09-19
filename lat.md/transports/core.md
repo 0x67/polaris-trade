@@ -1,6 +1,6 @@
 # transport_core
 
-Shared transport layer: capability traits, fixed-capacity bursts, buffer pools, L2-to-UDP decap and one typed error. Makes no syscall; backends own drivers and configs.
+Shared transport layer: capability traits, fixed-capacity bursts, buffer pools, L2-to-UDP decap, kernel-bypass shell and one typed error. Makes no syscall; backends own drivers and configs.
 
 ## Capability traits
 
@@ -33,6 +33,14 @@ Two pools, both in core: heap slabs for sockets and one contiguous slot region f
 [[crates/transports/core/src/decap.rs#UdpDecap]] turns any `L2Recv` into a `DatagramRecv`, so AF_XDP and DPDK serve datagram consumers such as MoldUDP64.
 
 It parses Ethernet II with at most one 802.1Q tag, IPv4 without fragments, and UDP to one destination port (optionally one destination address). The payload is bounded by the IPv4 total length, so Ethernet padding never leaks in. Frames that do not fit the caller's batch wait for the next call; a reap whose frames were all filtered is followed by another reap, so `Ok(0)` still means idle. Drops are counted per reason in [[crates/transports/core/src/decap.rs#DecapStats]]; checksums are not verified.
+
+## Kernel-bypass shell
+
+One generic transport serves io_uring, AF_XDP and DPDK: each backend supplies only a driver, and the shell adds telemetry, exhaustion mapping and error deferral once.
+
+[[crates/transports/core/src/bypass/mod.rs#Driver]] reaps frames without blocking and reports monotonic counters (`no_buffer`, `nic_missed`, `truncated`, `syscalls`); its `Layer` (`L4` or `L2`) decides whether [[crates/transports/core/src/bypass/mod.rs#BypassTransport]] implements `DatagramRecv` or `L2Recv`. `Exhausted` with nothing pushed becomes `PoolExhausted`; a driver error met after frames were pushed is returned on the next call, so frames never travel with `Err` and `Ok(0)` stays idle. While the metrics gate is on, the shell records each non-empty burst and reads driver counters every `STATS_EVERY` (1024) calls, empty or not, reporting only their increase.
+
+[[crates/transports/core/src/bypass/mock.rs#MockDriver]] (feature `testing`) copies injected bytes into a free `IndexPool` slot at once, as NIC DMA would, and counts `no_buffer` when none is free. Its `L2` flavour carries whole Ethernet frames for `UdpDecap`. Integration tests run the conformance suite on both layers and prove steady-state bursts allocate nothing.
 
 ## Telemetry
 

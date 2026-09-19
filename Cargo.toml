@@ -19,6 +19,7 @@ metrics = "0.24"
 thiserror = "2.0.18"
 
 # dev only
+allocation-counter = "0.8.1"
 criterion = "0.8.2"
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 

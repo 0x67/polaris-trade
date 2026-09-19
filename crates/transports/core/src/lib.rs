@@ -10,8 +10,9 @@
 //! | Feature | Enables |
 //! | --- | --- |
 //! | `observability` | `telemetry` receive metrics and re-exported `observability_core` gate |
-//! | `testing` | `testing::conformance` suite for backend tests; unstable |
+//! | `testing` | `testing::conformance` suite and `bypass::MockDriver` for backend tests; unstable |
 
+pub mod bypass;
 pub mod config;
 pub mod decap;
 pub mod error;

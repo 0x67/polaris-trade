@@ -177,6 +177,12 @@ impl<F> FrameBatch<F> {
         self.frames.is_empty()
     }
 
+    // held frames, oldest first; bypass shell sums burst bytes from them
+    #[cfg(feature = "observability")]
+    pub(crate) fn frames(&self) -> &[F] {
+        &self.frames
+    }
+
     /// Append one reaped frame. Backends call this only while `spare() > 0`,
     /// so correct backend never makes batch reallocate.
     ///

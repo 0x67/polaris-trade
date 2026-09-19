@@ -23,12 +23,31 @@ observability = ["dep:observability-core", "dep:metrics"]
 testing = []
 
 [dev-dependencies]
+allocation-counter = { workspace = true }
 criterion = { workspace = true }
 metrics-util = { workspace = true }
+
+[[test]]
+name = "bypass"
+required-features = ["testing"]
+
+[[test]]
+name = "zero_alloc"
+required-features = ["testing"]
 
 [[bench]]
 name = "pool"
 harness = false
+
+[[bench]]
+name = "bypass"
+harness = false
+required-features = ["testing"]
+
+[[bench]]
+name = "decap"
+harness = false
+required-features = ["testing"]
 
 [lints]
 workspace = true
