@@ -16,7 +16,9 @@ Every platform-limited option defaults to off, and an explicit one the platform 
 
 [[crates/transports/socket/src/recv.rs#burst]] is the only datagram receive loop. Each socket type passes its recv call and a peek as closures, so the final would-block passes through that type's readiness wrapper.
 
-Datagrams land in `VecPool` slabs as [[crates/transports/socket/src/recv.rs#UdpFrame]], which carries the real sender address. With the pool empty and nothing pushed, the loop peeks: a queued datagram is `PoolExhausted`, an idle socket `Ok(0)`. An error met after frames were pushed waits in the socket's deferred slot and returns first on the next call. On Windows, `WSAEMSGSIZE` counts a truncated drop and `WSAECONNRESET` is skipped. The recv closure sees the slab as `MaybeUninit` bytes but must never write uninitialised ones, since the slab is read as `[u8]` afterwards. TCP reads map through [[crates/transports/socket/src/recv.rs#stream]]: empty destination and would-block are `Ok(0)`, a zero-byte read is `PeerClosed`.
+Datagrams land in `VecPool` slabs as [[crates/transports/socket/src/recv.rs#UdpFrame]], which carries the real sender address. With the pool empty and nothing pushed, the loop peeks: a queued datagram is `PoolExhausted`, an idle socket `Ok(0)`. An error met after frames were pushed waits in the socket's deferred slot and returns first on the next call. A datagram the kernel cut is dropped, counted `Truncated` under `observability`, and the slab goes back to the pool; on Windows `WSAECONNRESET` is skipped. The recv closure sees the slab as `MaybeUninit` bytes but must never write uninitialised ones, since the slab is read as `[u8]` afterwards. TCP reads map through [[crates/transports/socket/src/recv.rs#stream]]: empty destination and would-block are `Ok(0)`, a zero-byte read is `PeerClosed`.
+
+Every UDP type receives through [[crates/transports/socket/src/recv.rs#datagram]], which wraps socket2 `recv_from_vectored` over one slab: `recvmsg` is the only call reporting the cut on both Unix (`MSG_TRUNC`) and Windows (`WSAEMSGSIZE`), where plain `recv_from` delivers the cut payload unsignalled on Unix. socket2 turns the Winsock error into that flag, so the receive loop has no `WSAEMSGSIZE` arm of its own.
 
 ## Readiness
 
@@ -30,7 +32,7 @@ Linux, macOS and Windows, unprivileged. A few options and behaviours depend on t
 
 - `busy_poll_us` is Linux only; raising it above `net.core.busy_read` needs `CAP_NET_ADMIN`.
 - `reuse_port` is Unix only.
-- A datagram longer than its slab: Windows drops and counts it; Unix delivers it cut to slab size with no signal (socket2 `recv_from` passes no `MSG_TRUNC`). Size slabs for the largest datagram.
+- A datagram longer than its slab is dropped and counted on every OS, never delivered cut. Size slabs for the largest datagram: a dropped one is a lost one.
 - tokio constructors need a runtime with its IO driver on the calling thread (else `Unavailable`); `TcpStream::connect` also needs the time driver.
 
 ## Decisions
@@ -64,8 +66,8 @@ Integration tests prove each type's contract on loopback only, on every OS the c
 - `tests/ready_mio.rs`: data queued before registration, idle leg beside active one, re-report after drain, wake while blocked, TCP readable. `tests/ready_tokio.rs`: no stale ready after drain, UDP and TCP.
 - `tests/tcp.rs`: config rejection before connect, refused connect as `Connect`, partial write resumed on writable readiness. On Linux and macOS a connect to a listener with a full accept queue fails `Connect` of kind `TimedOut` within bound (Winsock refuses instead).
 - `tests/sockopt.rs` reads options back from the kernel and checks platform-limited ones fail loudly; buffer sizes above `i32::MAX` and `ReadySet` above 65536 events are `InvalidConfig` naming the field.
-- `tests/udp.rs`: `Bind` carries `AddrInUse` and the OS text, a `send_to` flood only ever fails with `WouldBlock`, frames carry the sender, a second join of one group is refused by the kernel (proving membership), and an interface of the other family is `InvalidConfig`.
+- `tests/udp.rs`: `Bind` carries `AddrInUse` and the OS text, a `send_to` flood only ever fails with `WouldBlock`, frames carry the sender, a datagram longer than the one slab is dropped whole and the next one still lands, counted as a truncated drop under `observability`, a second join of one group is refused by the kernel (proving membership), and an interface of the other family is `InvalidConfig`.
 - In-crate: `recv::burst` with the pool run dry after a push keeps the frame, returns no error and delivers the queued datagram next call; `send_to` maps ENOBUFS to `WouldBlock` keeping the OS error and passes EAGAIN through unwrapped.
-- `tests/zero_alloc.rs`: steady-state receive allocates nothing. `tests/windows.rs`: `WSAECONNRESET` and `WSAEMSGSIZE` never end the receive loop, and a large queued datagram makes `AsyncUdp` ready.
+- `tests/zero_alloc.rs`: steady-state receive allocates nothing. `tests/windows.rs`: `WSAECONNRESET` never ends the receive loop, and a large queued datagram makes `AsyncUdp` ready.
 
 `benches/recv.rs` times the drain of a pre-filled socket at burst sizes 1 to 64, with the sends outside the timed region, and an idle spin.

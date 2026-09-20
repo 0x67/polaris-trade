@@ -71,7 +71,7 @@ impl DatagramRecv for MioUdp {
             &self.pool,
             out,
             &mut self.deferred,
-            |buf| sock.try_io(|| SockRef::from(sock).recv_from(buf)),
+            |buf| sock.try_io(|| recv::datagram(&SockRef::from(sock), buf)),
             || sock.try_io(|| recv::peek_ready(&SockRef::from(sock))),
         )
     }

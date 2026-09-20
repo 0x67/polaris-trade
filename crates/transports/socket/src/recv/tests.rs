@@ -16,13 +16,13 @@ const PEER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9);
 // scripted socket: each recv call pops next outcome
 fn script(
     steps: &mut VecDeque<io::Result<&'static [u8]>>,
-) -> impl FnMut(&mut [MaybeUninit<u8>]) -> io::Result<(usize, SockAddr)> {
+) -> impl FnMut(&mut [MaybeUninit<u8>]) -> io::Result<(usize, bool, SockAddr)> {
     |buf| {
         let payload = steps.pop_front().expect("script exhausted")?;
         for (slot, byte) in buf.iter_mut().zip(payload) {
             slot.write(*byte);
         }
-        Ok((payload.len(), SockAddr::from(PEER)))
+        Ok((payload.len(), false, SockAddr::from(PEER)))
     }
 }
 

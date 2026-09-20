@@ -1082,6 +1082,8 @@ dependencies = [
  "allocation-counter",
  "criterion",
  "libc",
+ "metrics",
+ "metrics-util",
  "mio",
  "socket2",
  "tokio",

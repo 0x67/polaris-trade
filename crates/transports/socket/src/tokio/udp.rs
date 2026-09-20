@@ -85,7 +85,7 @@ impl DatagramRecv for AsyncUdp {
             &self.pool,
             out,
             &mut self.deferred,
-            |buf| SockRef::from(sock).recv_from(buf),
+            |buf| recv::datagram(&SockRef::from(sock), buf),
             || recv::peek_ready(&SockRef::from(sock)),
         )
     }

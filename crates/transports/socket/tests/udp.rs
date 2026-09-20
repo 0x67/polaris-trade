@@ -1,6 +1,7 @@
 //! Sync `UdpSocket` edges beyond conformance suite: bind failure keeps OS
 //! error, `send_to` never blocks and fails only with kind `WouldBlock`, frames
-//! carry real sender address, multicast join reaches kernel.
+//! carry real sender address, datagram longer than slab never reaches caller,
+//! multicast join reaches kernel.
 
 mod support;
 
@@ -92,6 +93,83 @@ fn frame_carries_sender_address() {
     let frame = batch.drain().next().expect("one frame");
     assert_eq!(frame.as_ref(), b"who");
     assert_eq!(frame.peer(), sender.local_addr().expect("sender addr"));
+}
+
+// one slab: cut datagram must hand its slab back for next datagram to land
+#[test]
+fn datagram_longer_than_slab_is_dropped_not_cut() {
+    let mut cfg = UdpConfig::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
+    cfg.slab_size = NonZeroUsize::new(64).unwrap();
+    cfg.slab_count = NonZeroUsize::MIN;
+    let mut rx = UdpSocket::bind(&cfg).expect("bind receiver");
+    let to = rx.local_addr().expect("local addr");
+    let tx = support::sender();
+    tx.send_to(&[0x7f; 200], to).expect("send oversized");
+    tx.send_to(b"fits", to).expect("send");
+
+    let mut batch = FrameBatch::with_capacity(NonZeroUsize::new(4).unwrap());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut got: Vec<Vec<u8>> = Vec::new();
+    while got.is_empty() {
+        assert!(Instant::now() < deadline, "no datagram arrived");
+        match rx.recv_burst(&mut batch) {
+            Ok(0) => thread::yield_now(),
+            Ok(_) => got.extend(batch.drain().map(|f| f.as_ref().to_vec())),
+            Err(e) => panic!("receive loop ended: {e}"),
+        }
+    }
+    assert_eq!(got, [b"fits".to_vec()], "cut datagram reached caller");
+}
+
+// same drop the test above proves, seen through the metrics seam
+#[cfg(feature = "observability")]
+#[test]
+fn dropped_oversized_datagram_counts_as_truncated() {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+    use transport_core::observability_core;
+
+    fn truncated_drops(snapshotter: &Snapshotter) -> u64 {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                let truncated = key.key().labels().any(|l| l.value() == "truncated");
+                (key.key().name() == "transport.recv.drops" && truncated).then(|| match value {
+                    DebugValue::Counter(n) => n,
+                    other => panic!("drops is {other:?}"),
+                })
+            })
+            .unwrap_or(0)
+    }
+
+    observability_core::set_metrics_enabled(true);
+    observability_core::refresh_thread_gate();
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+
+    metrics::with_local_recorder(&recorder, || {
+        let mut cfg = UdpConfig::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
+        cfg.slab_size = NonZeroUsize::new(64).unwrap();
+        let mut rx = UdpSocket::bind(&cfg).expect("bind receiver");
+        let to = rx.local_addr().expect("local addr");
+        support::sender()
+            .send_to(&[0x7f; 200], to)
+            .expect("send oversized");
+
+        // snapshot drains what it reports, so read the count where it appears
+        let mut batch = FrameBatch::with_capacity(NonZeroUsize::MIN);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let counted = loop {
+            assert!(Instant::now() < deadline, "no truncated drop counted");
+            assert_eq!(rx.recv_burst(&mut batch).expect("recv"), 0, "nothing whole");
+            match truncated_drops(&snapshotter) {
+                0 => thread::yield_now(),
+                n => break n,
+            }
+        };
+        assert_eq!(counted, 1, "one datagram, one drop");
+    });
 }
 
 // loopback delivers group datagrams even without membership, so receipt proves

@@ -1,19 +1,18 @@
 //! Winsock quirks the receive path absorbs: `WSAECONNRESET` after unreachable
-//! send, datagram longer than slab (`WSAEMSGSIZE`), large queued datagram
-//! under `AsyncReady` probe.
+//! send, large queued datagram under `AsyncReady` probe. Datagram longer than
+//! slab is every OS now, so it lives in `tests/udp.rs`.
 #![cfg(windows)]
 
 mod support;
 
 use std::{
-    net::{Ipv4Addr, SocketAddr},
     num::NonZeroUsize,
     thread,
     time::{Duration, Instant},
 };
 
 use transport_core::{DatagramRecv, DatagramSend, FrameBatch};
-use transport_socket::{UdpConfig, UdpFrame, UdpSocket};
+use transport_socket::UdpFrame;
 
 // payloads of every frame received until `n` arrive; any error fails test
 fn receive<T: DatagramRecv<Frame = UdpFrame>>(t: &mut T, n: usize) -> Vec<Vec<u8>> {
@@ -47,19 +46,6 @@ fn connreset_after_unreachable_send_does_not_end_receive_loop() {
         .send_to(b"data", rx.local_addr().expect("local addr"))
         .expect("send");
     assert_eq!(receive(&mut rx, 1), [b"data".to_vec()]);
-}
-
-#[test]
-fn datagram_longer_than_slab_is_skipped_not_fatal() {
-    let mut cfg = UdpConfig::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
-    cfg.slab_size = NonZeroUsize::new(64).unwrap();
-    let mut rx = UdpSocket::bind(&cfg).expect("bind");
-    let to = rx.local_addr().expect("local addr");
-    let tx = support::sender();
-    tx.send_to(&[0x7f; 200], to).expect("send oversized");
-    tx.send_to(b"fits", to).expect("send");
-
-    assert_eq!(receive(&mut rx, 1), [b"fits".to_vec()]);
 }
 
 #[cfg(feature = "tokio")]

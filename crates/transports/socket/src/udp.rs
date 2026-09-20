@@ -83,7 +83,7 @@ impl DatagramRecv for UdpSocket {
             &self.pool,
             out,
             &mut self.deferred,
-            |buf| sock.recv_from(buf),
+            |buf| recv::datagram(sock, buf),
             || recv::peek_ready(sock),
         )
     }

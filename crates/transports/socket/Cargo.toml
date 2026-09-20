@@ -28,6 +28,8 @@ observability = ["transport_core/observability"]
 
 [dev-dependencies]
 transport_core = { workspace = true, features = ["testing"] }
+metrics = { workspace = true }
+metrics-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
 allocation-counter = { workspace = true }
 criterion = { workspace = true }

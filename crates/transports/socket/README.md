@@ -101,10 +101,9 @@ Every read and write on `MioUdp` and `MioTcp` goes through mio's `try_io`, which
 
 Linux, macOS and Windows. No privilege is needed, with one exception: raising `busy_poll_us` above `net.core.busy_read` needs `CAP_NET_ADMIN`.
 
-On Unix, a datagram longer than a slab arrives cut to the slab size with no signal (the kernel truncates it silently), so size slabs for the largest datagram. On Windows:
+A datagram longer than a slab is dropped whole on every OS, counted as `truncated` under `observability`, and the loop continues: half a message never reaches the caller. Receive is `recvmsg`, the only call reporting the cut on both Unix (`MSG_TRUNC`) and Windows (`WSAEMSGSIZE`). Still size slabs for the largest datagram, since a dropped one is a lost one. On Windows:
 
 - `ready()` probes with socket2's `peek_sender`, which does not fail on a queued datagram larger than the probe buffer (`WSAEMSGSIZE`).
-- A datagram longer than a slab (`WSAEMSGSIZE` on receive) is dropped, counted as `truncated` under `observability`, and the loop continues.
 - `WSAECONNRESET` on a UDP receive (Winsock reporting an ICMP port-unreachable for an earlier send) is skipped, so one unreachable peer cannot end the receive loop.
 - `SO_REUSEPORT` and `SO_BUSY_POLL` do not exist; setting them is `InvalidConfig`.
 

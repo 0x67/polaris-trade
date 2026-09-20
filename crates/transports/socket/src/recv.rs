@@ -11,17 +11,14 @@ use std::{
     slice,
 };
 
-use socket2::{SockAddr, Socket};
-#[cfg(all(windows, feature = "observability"))]
+use socket2::{MaybeUninitSlice, SockAddr, Socket};
+#[cfg(feature = "observability")]
 use transport_core::telemetry::DropReason;
 use transport_core::{
     FrameBatch, PoolStats, TransportError,
     pool::{VecPool, VecSlab, backend},
 };
 
-// Winsock: datagram longer than buffer; truncated copy landed, rest discarded
-#[cfg(windows)]
-const WSAEMSGSIZE: i32 = 10040;
 // Winsock: ICMP port unreachable for earlier send, reported on later recv; no datagram lost
 #[cfg(windows)]
 const WSAECONNRESET: i32 = 10054;
@@ -55,7 +52,8 @@ impl AsRef<[u8]> for UdpFrame {
 /// Error left in `deferred` by previous call returns first, before any
 /// syscall. Error met after frames were pushed waits in `deferred`, so frames
 /// never travel with `Err`. Pool empty with nothing pushed runs `peek`:
-/// queued datagram is `PoolExhausted`, idle socket `Ok(0)`.
+/// queued datagram is `PoolExhausted`, idle socket `Ok(0)`. Datagram `recv`
+/// reports cut is no frame: it is dropped, counted, loop goes on.
 ///
 /// `recv` sees slab bytes as `MaybeUninit` but must write only initialised
 /// bytes, never `MaybeUninit::uninit()`: slab is read as `[u8]` afterwards.
@@ -64,7 +62,7 @@ pub(crate) fn burst(
     pool: &VecPool,
     out: &mut FrameBatch<UdpFrame>,
     deferred: &mut Option<TransportError>,
-    mut recv: impl FnMut(&mut [MaybeUninit<u8>]) -> io::Result<(usize, SockAddr)>,
+    mut recv: impl FnMut(&mut [MaybeUninit<u8>]) -> io::Result<(usize, bool, SockAddr)>,
     peek: impl FnOnce() -> io::Result<()>,
 ) -> Result<usize, TransportError> {
     if let Some(error) = deferred.take() {
@@ -82,7 +80,12 @@ pub(crate) fn burst(
             break;
         };
         match recv(uninit(backend::buf_mut(&mut slab))) {
-            Ok((len, from)) => {
+            // cut datagram is half a message; dropped slab returns to pool, next pass reuses it
+            Ok((_, true, _)) => {
+                #[cfg(feature = "observability")]
+                transport_core::telemetry::record_drops(name, DropReason::Truncated, 1);
+            }
+            Ok((len, false, from)) => {
                 backend::set_len(&mut slab, len);
                 #[cfg(feature = "observability")]
                 {
@@ -94,12 +97,6 @@ pub(crate) fn burst(
                 pushed += 1;
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-            // dropped slab returns to pool, next pass reuses it
-            #[cfg(windows)]
-            Err(e) if e.raw_os_error() == Some(WSAEMSGSIZE) => {
-                #[cfg(feature = "observability")]
-                transport_core::telemetry::record_drops(name, DropReason::Truncated, 1);
-            }
             #[cfg(windows)]
             Err(e) if e.raw_os_error() == Some(WSAECONNRESET) => {}
             Err(error) => {
@@ -136,6 +133,20 @@ fn exhausted(
             error,
         }),
     }
+}
+
+/// One datagram into `buf`: byte count, whether kernel cut it, sender.
+///
+/// `recvmsg` path, not `recvfrom`: only it reports datagram longer than `buf`
+/// on every OS (Unix `MSG_TRUNC`, Winsock `WSAEMSGSIZE`). Plain `recv_from`
+/// delivers cut payload unsignalled on Unix.
+pub(crate) fn datagram(
+    sock: &Socket,
+    buf: &mut [MaybeUninit<u8>],
+) -> io::Result<(usize, bool, SockAddr)> {
+    let mut bufs = [MaybeUninitSlice::new(buf)];
+    let (len, flags, from) = sock.recv_from_vectored(&mut bufs)?;
+    Ok((len, flags.is_truncated(), from))
 }
 
 /// `Ok(())` when datagram queued, `Err(WouldBlock)` when not.
