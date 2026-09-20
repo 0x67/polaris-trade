@@ -46,7 +46,7 @@ One generic transport serves io_uring, AF_XDP and DPDK: each backend supplies on
 
 Pooled drivers ([[io-uring]], [[afxdp]]) recycle freed slots at the start of each reap; [[dpdk]] frees mbufs in place. Each backend wraps the shell in its own type without exposing it, so users never reach a real driver.
 
-[[crates/transports/core/src/bypass/mock.rs#MockDriver]] (feature `testing`) copies injected bytes into a free `IndexPool` slot at once, as NIC DMA would, and counts `no_buffer` when none is free. Its `L2` flavour carries whole Ethernet frames for `UdpDecap`.
+[[crates/transports/core/src/bypass/mock.rs#MockDriver]] (feature `testing`) copies injected bytes into a free `IndexPool` slot at once, as NIC DMA would, and counts `no_buffer` when none is free. Its `L2` flavour carries whole Ethernet frames for `UdpDecap`. `new` panics on a pool with a live frame, in release builds too: that slot would be listed free and safe `inject` would overwrite bytes the frame still reads.
 
 ## Telemetry
 

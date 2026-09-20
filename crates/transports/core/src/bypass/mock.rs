@@ -33,9 +33,14 @@ pub struct MockDriver<L> {
 impl<L> MockDriver<L> {
     /// Take every slot of `pool`, which must hold no live frame. Allocates
     /// here once; `inject` and `reap` never allocate.
+    ///
+    /// # Panics
+    ///
+    /// When `pool` has live frame: its slot would be listed free, and safe
+    /// `inject` would write bytes that frame still reads.
     pub fn new(pool: IndexPool) -> Self {
         let count = pool.stats().capacity;
-        debug_assert_eq!(pool.stats().in_use, 0, "MockDriver::new over live frames");
+        assert_eq!(pool.stats().in_use, 0, "MockDriver::new over live frames");
         let mut freed = Vec::with_capacity(count);
         // slots freed before hand-over are already in `free`; keeping them would list them twice
         pool.drain_freed(&mut freed);
