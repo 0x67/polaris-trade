@@ -186,7 +186,7 @@ fn mio_partial_write_resumes_on_writable_readiness() {
         time::{Duration, Instant},
     };
 
-    use socket2::SockRef;
+    use socket2::{Domain, Socket, Type};
     use transport_core::StreamTrySend;
     use transport_socket::mio::{MioTcp, ReadySet, ReadyToken};
 
@@ -194,20 +194,31 @@ fn mio_partial_write_resumes_on_writable_readiness() {
     const LEN: usize = 1024 * 1024;
     const TOKEN: ReadyToken = ReadyToken(0);
 
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     // small send buffer alone does not stall a sender: Windows auto-tunes the
-    // receive window into the megabytes. Accepted socket inherits listener's
-    // buffer, and setting it is what pins the window down. 64 KiB (Linux
-    // doubles it) stays far under `LEN` yet drains it in few round trips.
-    SockRef::from(&listener)
+    // receive window into the megabytes, and fixes it when the connection is
+    // established, so the peer's buffer has to be set before `listen`, not on
+    // an already listening socket. 64 KiB (Linux doubles it) stays far under
+    // `LEN` yet drains it in few round trips.
+    let listener = Socket::new(Domain::IPV4, Type::STREAM, None).expect("socket");
+    listener
         .set_recv_buffer_size(64 * 1024)
         .expect("listener recv buffer");
-    let mut cfg = TcpConfig::new(listener.local_addr().expect("listener addr"));
+    listener
+        .bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into())
+        .expect("bind listener");
+    listener.listen(1).expect("listen");
+    let remote = listener
+        .local_addr()
+        .ok()
+        .and_then(|a| a.as_socket())
+        .expect("listener addr");
+    let mut cfg = TcpConfig::new(remote);
     cfg.send_buf = NonZeroU32::new(4096);
     // sub-MSS segments under Nagle wait on delayed ACKs: tens of ms each
     cfg.nodelay = true;
     let mut tcp = MioTcp::connect(&cfg).expect("connect");
-    let (mut peer, _) = listener.accept().expect("accept");
+    let (peer, _) = listener.accept().expect("accept");
+    let mut peer = std::net::TcpStream::from(peer);
     let data: Vec<u8> = (0..=250).cycle().take(LEN).collect();
 
     // peer not reading: short writes, then would-block as `Ok(0)`
