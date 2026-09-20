@@ -101,8 +101,8 @@ The old trait shape forced every backend to claim capabilities it lacked, and ex
 
 Unit and integration tests need no privilege and run on every OS; Miri covers the pools and the bypass shell.
 
-- `tests/bypass.rs`: `l4_shell_passes_datagram_conformance` and `l2_shell_under_decap_passes_datagram_conformance` run the suite over the mock; `decap_delivers_reap_larger_than_out_across_calls`, `driver_error_after_frames_waits_one_call_and_returns_once`, `exhausted_is_pool_exhausted_only_when_nothing_pushed`, and (with `observability`) `no_buffer_delta_reported_every_stats_every_calls`.
-- `tests/miri_pool.rs` (also under Miri): every slab handed out then reused, frames at non-zero offsets reading their own bytes, cross-thread drop returning a slot, oversized pools rejected.
+- `tests/bypass.rs`: `l4_shell_passes_datagram_conformance` and `l2_shell_under_decap_passes_datagram_conformance` run the suite over the mock; `decap_delivers_reap_larger_than_out_across_calls`, `decap_reaps_again_when_whole_reap_is_filtered`, `driver_error_after_frames_waits_one_call_and_returns_once`, `exhausted_is_pool_exhausted_only_when_nothing_pushed`, and (with `observability`) `no_buffer_delta_reported_every_stats_every_calls`.
+- `tests/miri_pool.rs` (also under Miri): every slab handed out then reused, frames at non-zero offsets reading their own bytes, cross-thread drop returning a slot, frames dropped on one thread while another drains each returning exactly once, oversized pools rejected.
 - `tests/zero_alloc.rs`: steady-state bursts allocate nothing on the L4 shell and on the L2 shell under `UdpDecap`.
 - In-crate: `parse_udp` over plain, VLAN, IPv4 options, padding, fragments, wrong port or address, non-UDP, non-IPv4 and truncated frames; zero-count telemetry records nothing; config validation.
 

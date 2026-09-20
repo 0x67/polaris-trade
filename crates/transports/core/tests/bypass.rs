@@ -84,6 +84,31 @@ fn decap_delivers_reap_larger_than_out_across_calls() {
     assert_eq!(t.inner().stats().no_buffer, 0, "nothing lost at inject");
 }
 
+#[test]
+fn decap_reaps_again_when_whole_reap_is_filtered() {
+    let shell = BypassTransport::new(mock::<L2>(NonZeroU32::new(16).unwrap()));
+    let mut t = UdpDecap::new(shell, PORT, None, DECAP_BURST);
+    // first inner reap takes only other-port frames; match waits for second
+    for i in 0..DECAP_BURST.get() {
+        let other = support::udp_frame(PORT + 1, &[u8::try_from(i).unwrap()]);
+        t.inner_mut().driver_mut().inject(&other);
+    }
+    t.inner_mut()
+        .driver_mut()
+        .inject(&support::udp_frame(PORT, b"match"));
+
+    let mut out = FrameBatch::with_capacity(NonZeroUsize::MIN);
+    assert_eq!(t.recv_burst(&mut out).unwrap(), 1, "one call, not idle");
+    assert_eq!(out.drain().next().unwrap().as_ref(), b"match");
+    assert_eq!(
+        t.stats(),
+        DecapStats {
+            wrong_dst: DECAP_BURST.get() as u64,
+            ..DecapStats::default()
+        }
+    );
+}
+
 // frame pushed, if any, then what `reap` returns
 type Step = (Option<&'static str>, Result<Reap, TransportError>);
 

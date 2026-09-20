@@ -2,7 +2,9 @@
 
 use std::{
     num::{NonZeroU32, NonZeroUsize},
-    ptr, thread,
+    ptr,
+    sync::{Arc, Barrier},
+    thread,
 };
 
 use transport_core::{
@@ -96,6 +98,49 @@ fn frame_dropped_on_other_thread_returns_slot_through_drain_freed() {
     freed.clear();
     pool.drain_freed(&mut freed);
     assert!(freed.is_empty(), "slot handed back once only");
+}
+
+#[test]
+fn slots_dropped_while_driver_drains_each_return_exactly_once() {
+    const SLOTS: u32 = 8;
+    let pool = IndexPool::new(nz32(SLOTS), nz32(64)).unwrap();
+    // SAFETY: every slot in bounds, each minted once, region zeroed.
+    let frames: Vec<_> = (0..SLOTS).map(|s| unsafe { pool.frame(s, 0, 8) }).collect();
+
+    // both sides start together, so drains overlap drops
+    let start = Arc::new(Barrier::new(2));
+    let dropper = thread::spawn({
+        let start = Arc::clone(&start);
+        move || {
+            start.wait();
+            for frame in frames {
+                drop(frame);
+                thread::yield_now();
+            }
+        }
+    });
+    let mut back = Vec::new();
+    let mut freed = Vec::with_capacity(SLOTS as usize);
+    start.wait();
+    while !dropper.is_finished() {
+        pool.drain_freed(&mut freed);
+        back.append(&mut freed);
+        thread::yield_now();
+    }
+    // join orders every drop before last drain
+    dropper.join().unwrap();
+    pool.drain_freed(&mut freed);
+    back.append(&mut freed);
+
+    back.sort_unstable();
+    assert_eq!(
+        back,
+        (0..SLOTS).collect::<Vec<_>>(),
+        "no slot lost or doubled"
+    );
+    pool.drain_freed(&mut freed);
+    assert!(freed.is_empty(), "drained slot handed back again");
+    assert_eq!(pool.stats().in_use, 0);
 }
 
 #[test]
