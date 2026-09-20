@@ -6,7 +6,7 @@
 //! ring: prep rejects unknown multishot flag with EINVAL inline, while
 //! supporting kernel completes it at once with ENOBUFS, before any data moves.
 
-use std::{io, os::fd::RawFd};
+use std::{io, mem, os::fd::RawFd};
 
 use io_uring::{IoUring, Probe, opcode, types};
 use transport_core::TransportError;
@@ -80,7 +80,8 @@ pub(crate) fn open_ring(sq: u32, cq: u32) -> Result<IoUring, TransportError> {
 pub(crate) fn probe(ring: &mut IoUring, fd: RawFd) -> Result<Support, TransportError> {
     let legacy = legacy(ring);
     let probe_ring = RingMem::new(1)?;
-    // SAFETY: `probe_ring` outlives registration: unregistered below before it drops.
+    // SAFETY: `probe_ring` outlives registration: unregistered below before it
+    // drops, or leaked when unregister fails.
     let buf_ring = match unsafe { probe_ring.register(&ring.submitter(), PROBE_BGID) } {
         Ok(()) => true,
         Err(e) if e.raw_os_error() == Some(libc::EINVAL) => false,
@@ -98,14 +99,19 @@ pub(crate) fn probe(ring: &mut IoUring, fd: RawFd) -> Result<Support, TransportE
             multishot: false,
         });
     }
-    let multishot = multishot(ring, fd)?;
-    ring.submitter()
-        .unregister_buf_ring(PROBE_BGID)
-        .map_err(io_error("io_uring unregister buf ring"))?;
+    let multishot = multishot(ring, fd);
+    if let Err(error) = ring.submitter().unregister_buf_ring(PROBE_BGID) {
+        // group still registered, kernel may read ring: never unmap it
+        mem::forget(probe_ring);
+        return Err(TransportError::Io {
+            stage: "io_uring unregister buf ring",
+            error,
+        });
+    }
     Ok(Support {
         legacy,
         buf_ring,
-        multishot,
+        multishot: multishot?,
     })
 }
 
