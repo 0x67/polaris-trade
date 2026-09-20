@@ -24,6 +24,8 @@ Legacy provides the whole region with one `ProvideBuffers` at bind and one per c
 
 An empty datagram, which any host reaching the port can send, completes on 6.0+ with result 0 and no buffer id, the kernel keeping the buffer: `classify` returns `Empty`, nothing is delivered, the recv is re-armed as for data, and reap reads on. Before 6.0 it arrives as a 0-byte frame. Only a non-empty success without buffer id is `EIO`.
 
+[[crates/transports/io-uring/src/driver.rs#provide_runs]] hands legacy runs over one by one; a run that cannot be queued stays in `back` with every later run for the next reap, so no slot leaves the pool, and only handed slots reopen a starved fleet. Reap returns a recv error before a refill error; a failed refill leaves its work queued, so it recurs.
+
 ## Idle spin and exhaustion
 
 [[crates/transports/io-uring/src/driver.rs#UringDriver#reap]] enters the kernel only when the submission queue holds work or the completion queue overflowed, so an idle spin makes no syscall; `DriverStats::syscalls` counts every enter.
@@ -71,6 +73,6 @@ The old backend used only legacy provided buffers, entered the kernel on every s
 
 Pure logic is tested in-crate on any Linux host; everything touching a real ring is in `tests/real_io_uring.rs`, ignored, run privileged.
 
-In-crate: `classify_maps_every_completion_shape`, `select_honours_forced_path_only_when_present`, `select_auto_picks_best_supported`, config limits, `push_and_publish_wrap_u16_tail_without_touching_published_tail` for `RingMem`, and the starved gate (`starved_fleet_arms_nothing_until_slot_goes_back`, `fleet_rearms_only_when_request_ends`).
+In-crate: `classify_maps_every_completion_shape`, `select_honours_forced_path_only_when_present`, `select_auto_picks_best_supported`, config limits, `push_and_publish_wrap_u16_tail_without_touching_published_tail` for `RingMem`, the starved gate (`starved_fleet_arms_nothing_until_slot_goes_back`, `fleet_rearms_only_when_request_ends`), and `failed_provide_keeps_unhanded_slots_for_next_reap`. Probe cleanup on failure and the reap error order need a failing kernel and are not tested.
 
 Ignored, per forced path (`legacy_path`, `buf_ring_path`, `multishot_path`): the core conformance suite with `PoolExhausted` signalling, `no_buffer` rising at exhaustion, a truncated datagram freeing the only slot, an empty datagram followed by a payload never failing a burst, 10000 idle bursts with `syscalls` flat, and drop confirming cancellation idle and under traffic. Also `multicast_join_receives_group_datagram`, and `bind_without_io_uring_access_is_unavailable`, which must run unprivileged. `benches/classify.rs` times `classify` over a mixed completion stream.

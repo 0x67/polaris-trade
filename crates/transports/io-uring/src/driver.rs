@@ -220,21 +220,23 @@ impl UringDriver {
         Ok(pushed)
     }
 
-    // hand `back` to kernel; any slot handed reopens starved fleet
+    // hand `back` to kernel; slots not handed stay for next reap; any slot
+    // handed reopens starved fleet
     fn give_back(&mut self) -> Result<(), TransportError> {
-        self.fleet.refilled(self.back.len());
         if self.back.is_empty() {
             return Ok(());
         }
         let mut back = mem::take(&mut self.back);
+        let queued = back.len();
         let handed = self.hand_over(&mut back);
-        back.clear();
+        self.fleet.refilled(queued - back.len());
         self.back = back;
         handed
     }
 
-    // ring: one entry each, one publish; legacy: one provide per contiguous run
-    fn hand_over(&mut self, back: &mut [u32]) -> Result<(), TransportError> {
+    // ring: one entry each, one publish; legacy: one provide per contiguous
+    // run. Handed slots leave `back`
+    fn hand_over(&mut self, back: &mut Vec<u32>) -> Result<(), TransportError> {
         let base = self.mem.pool.base();
         let stride = self.mem.pool.stride() as usize;
         if let Some(ring) = &mut self.mem.buf_ring {
@@ -243,16 +245,10 @@ impl UringDriver {
                 ring.push(addr, self.slot_size, id16(slot as usize));
             }
             ring.publish();
+            back.clear();
             return Ok(());
         }
-        back.sort_unstable();
-        let mut rest = &*back;
-        while let Some(&first) = rest.first() {
-            let run = rest
-                .iter()
-                .zip(first..)
-                .take_while(|&(&slot, next)| slot == next)
-                .count();
+        provide_runs(back, |first, run| {
             let entry = opcode::ProvideBuffers::new(
                 base.wrapping_add(first as usize * stride),
                 // config caps slot size at `i32::MAX`
@@ -268,10 +264,8 @@ impl UringDriver {
             } else {
                 entry
             };
-            self.push(&entry)?;
-            rest = &rest[run..];
-        }
-        Ok(())
+            self.push(&entry)
+        })
     }
 
     fn arm(&mut self) -> Result<(), TransportError> {
@@ -389,10 +383,13 @@ impl Driver for UringDriver {
     fn reap(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Reap, TransportError> {
         self.mem.pool.drain_freed(&mut self.back);
         let completed = self.complete(out);
-        self.give_back()?;
-        self.arm()?;
-        self.submit_if_needed()?;
+        let refilled = self
+            .give_back()
+            .and_then(|()| self.arm())
+            .and_then(|()| self.submit_if_needed());
+        // recv error wins: failed refill leaves its work queued, so it recurs next reap
         let pushed = completed?;
+        refilled?;
         Ok(if pushed > 0 {
             Reap::Frames(pushed)
         } else if self.fleet.starved {
@@ -462,6 +459,30 @@ fn socket(cfg: &IoUringConfig) -> Result<Socket, TransportError> {
     Ok(sock)
 }
 
+// sort `back`, hand each contiguous run to `provide(first, len)`; handed slots
+// leave `back`, so on error rest stay for next reap instead of leaking
+fn provide_runs(
+    back: &mut Vec<u32>,
+    mut provide: impl FnMut(u32, usize) -> Result<(), TransportError>,
+) -> Result<(), TransportError> {
+    back.sort_unstable();
+    let mut handed = 0;
+    while let Some(&first) = back.get(handed) {
+        let run = back[handed..]
+            .iter()
+            .zip(first..)
+            .take_while(|&(&slot, next)| slot == next)
+            .count();
+        if let Err(error) = provide(first, run) {
+            back.drain(..handed);
+            return Err(error);
+        }
+        handed += run;
+    }
+    back.clear();
+    Ok(())
+}
+
 // buffer id or count field; config caps slots at 32768, so every value fits
 #[expect(
     clippy::cast_possible_truncation,
@@ -473,7 +494,11 @@ fn id16(v: usize) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Completion, Fleet};
+    use std::io;
+
+    use transport_core::TransportError;
+
+    use super::{Completion, Fleet, provide_runs};
 
     const DATA_ENDED: Completion = Completion::Data {
         slot: 0,
@@ -528,5 +553,33 @@ mod tests {
             1,
             "recv ended by empty datagram not re-armed"
         );
+    }
+
+    #[test]
+    fn failed_provide_keeps_unhanded_slots_for_next_reap() {
+        let mut back = vec![9, 2, 5, 1, 3];
+        let mut runs = Vec::new();
+        let got = provide_runs(&mut back, |first, run| {
+            runs.push((first, run));
+            if runs.len() == 2 {
+                return Err(TransportError::Io {
+                    stage: "io_uring submission queue",
+                    error: io::ErrorKind::WouldBlock.into(),
+                });
+            }
+            Ok(())
+        });
+        assert!(got.is_err(), "provide error swallowed");
+        assert_eq!(runs, [(1, 3), (5, 1)], "one provide per contiguous run");
+        assert_eq!(back, [5, 9], "unhanded slots dropped or handed ones kept");
+
+        runs.clear();
+        provide_runs(&mut back, |first, run| {
+            runs.push((first, run));
+            Ok(())
+        })
+        .expect("retry provides rest");
+        assert_eq!(runs, [(5, 1), (9, 1)]);
+        assert!(back.is_empty(), "handed slots left in back: {back:?}");
     }
 }
