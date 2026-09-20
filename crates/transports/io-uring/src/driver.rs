@@ -3,7 +3,7 @@
 //!
 //! Buffer id `s` is pool slot `s`. Each slot sits in exactly one place: kernel
 //! (group or ring), completion queue, `back` (on its way to kernel), live frame,
-//! or pool freed list. `reap` drains freed list, turns completions into frames,
+//! or pool freed list. `poll_frames` drains freed list, turns completions into frames,
 //! hands `back` to kernel, re-arms, and enters kernel only when submission
 //! queue holds work or completion queue overflowed, so idle spin makes no syscall.
 
@@ -19,7 +19,7 @@ use io_uring::{IoUring, opcode, squeue, types};
 use socket2::{Domain, Protocol, Socket, Type};
 use transport_core::{
     FrameBatch, PoolStats, TransportError,
-    bypass::{Driver, DriverStats, L4, Reap},
+    bypass::{Driver, DriverStats, L4, Polled},
     pool::{IndexFrame, IndexPool},
 };
 
@@ -31,7 +31,7 @@ use crate::{
     ring_mem::RingMem,
 };
 
-// user-data tags; reap ignores tags it does not own
+// user-data tags; driver ignores tags it does not own
 const UD_RECV: u64 = 1;
 const UD_PROVIDE: u64 = 2;
 const UD_CANCEL: u64 = 3;
@@ -124,7 +124,7 @@ impl UringDriver {
         let pool = IndexPool::new(cfg.slots, cfg.slot_size)?;
         let sock = socket(cfg)?;
         // room for full fleet plus provide and cancel; CQ holds every slot's
-        // completion plus fleet's, so overflow needs caller to stop reaping
+        // completion plus fleet's, so overflow needs caller to stop receiving
         let mut ring = open_ring(
             (depth + 2).next_power_of_two(),
             (slots + depth + 2).next_power_of_two(),
@@ -220,7 +220,7 @@ impl UringDriver {
         Ok(pushed)
     }
 
-    // hand `back` to kernel; slots not handed stay for next reap; any slot
+    // hand `back` to kernel; slots not handed stay for next call; any slot
     // handed reopens starved fleet
     fn give_back(&mut self) -> Result<(), TransportError> {
         if self.back.is_empty() {
@@ -324,7 +324,7 @@ impl UringDriver {
         self.stats.syscalls += 1;
         match self.ring.submit() {
             Ok(_) => Ok(()),
-            // busy or interrupted: entries stay queued, next reap submits them
+            // busy or interrupted: entries stay queued, next call submits them
             Err(e)
                 if matches!(
                     e.raw_os_error(),
@@ -381,22 +381,22 @@ impl Driver for UringDriver {
     const BACKEND: &'static str = BACKEND;
 
     #[inline]
-    fn reap(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Reap, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Polled, TransportError> {
         self.mem.pool.drain_freed(&mut self.back);
         let completed = self.complete(out);
         let refilled = self
             .give_back()
             .and_then(|()| self.arm())
             .and_then(|()| self.submit_if_needed());
-        // recv error wins: failed refill leaves its work queued, so it recurs next reap
+        // recv error wins: failed refill leaves its work queued, so it recurs next call
         let pushed = completed?;
         refilled?;
         Ok(if pushed > 0 {
-            Reap::Frames(pushed)
+            Polled::Frames(pushed)
         } else if self.fleet.starved {
-            Reap::Exhausted
+            Polled::Exhausted
         } else {
-            Reap::Idle
+            Polled::Idle
         })
     }
 
@@ -461,7 +461,7 @@ fn socket(cfg: &IoUringConfig) -> Result<Socket, TransportError> {
 }
 
 // sort `back`, hand each contiguous run to `provide(first, len)`; handed slots
-// leave `back`, so on error rest stay for next reap instead of leaking
+// leave `back`, so on error rest stay for next call instead of leaking
 fn provide_runs(
     back: &mut Vec<u32>,
     mut provide: impl FnMut(u32, usize) -> Result<(), TransportError>,
@@ -557,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_provide_keeps_unhanded_slots_for_next_reap() {
+    fn failed_provide_keeps_unhanded_slots_for_next_call() {
         let mut back = vec![9, 2, 5, 1, 3];
         let mut runs = Vec::new();
         let got = provide_runs(&mut back, |first, run| {

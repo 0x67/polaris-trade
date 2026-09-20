@@ -1,9 +1,9 @@
 //! Poll-mode driver over one DPDK receive queue, and its pure burst bookkeeping.
 //!
-//! One shim call per burst reaps mbufs and fills each one's data pointer,
+//! One shim call per burst takes mbufs and fills each one's data pointer,
 //! length and segment count. [`settle`] then turns single-segment mbufs into
 //! frames and frees chained ones in one bulk call, counted as truncated: a
-//! chained mbuf never turns burst into error, so no reaped frame is lost.
+//! chained mbuf never turns burst into error, so no received frame is lost.
 
 #[cfg(feature = "driver-dpdk")]
 use std::{
@@ -15,7 +15,7 @@ use std::{
 #[cfg(feature = "driver-dpdk")]
 use transport_core::{
     FrameBatch, PoolStats, TransportError,
-    bypass::{Driver, DriverStats, L2, Reap},
+    bypass::{Driver, DriverStats, L2, Polled},
 };
 
 #[cfg(feature = "driver-dpdk")]
@@ -63,7 +63,7 @@ pub(crate) struct PmdDriver {
     burst: u16,
     // read only by `pool_stats`
     mempool: *mut c_void,
-    // rx scratch, `burst` entries each; filled and settled within one reap
+    // rx scratch, `burst` entries each; filled and settled within one burst
     mbufs: Box<[*mut c_void]>,
     data: Box<[*const u8]>,
     lens: Box<[u16]>,
@@ -74,7 +74,7 @@ pub(crate) struct PmdDriver {
 }
 
 // SAFETY: `mempool` only read, by thread-safe stats calls; scratch rewritten by each
-// reap before read; attach contract allows one poller at a time, so moving to it is sound.
+// burst before read; attach contract allows one poller at a time, so moving to it is sound.
 #[cfg(feature = "driver-dpdk")]
 unsafe impl Send for PmdDriver {}
 
@@ -106,7 +106,7 @@ impl Driver for PmdDriver {
     // PMD refills its ring from mempool itself, so no recycle step; DPDK never
     // shows pending data without buffer, so no `Exhausted` (see `rx_nombuf`)
     #[inline]
-    fn reap(&mut self, out: &mut FrameBatch<MbufFrame>) -> Result<Reap, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<MbufFrame>) -> Result<Polled, TransportError> {
         let want = u16::try_from(out.spare()).map_or(self.burst, |spare| spare.min(self.burst));
         loop {
             // SAFETY: every scratch array holds `burst >= want` entries; port and
@@ -123,7 +123,7 @@ impl Driver for PmdDriver {
                 )
             };
             if n == 0 {
-                return Ok(Reap::Idle);
+                return Ok(Polled::Idle);
             }
             let n = usize::from(n);
             let delivered = settle(
@@ -145,7 +145,7 @@ impl Driver for PmdDriver {
             );
             // burst of only chained mbufs: ring may hold more, never read as idle
             if delivered > 0 {
-                return Ok(Reap::Frames(delivered));
+                return Ok(Polled::Frames(delivered));
             }
         }
     }

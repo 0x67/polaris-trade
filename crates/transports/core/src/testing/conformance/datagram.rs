@@ -173,7 +173,7 @@ where
                 assert_payloads(&recv_frames(t, 1, CASE), &[extra], CASE);
                 false
             }
-            // one burst lets drivers recycling on reap take freed buffers back
+            // one burst lets drivers recycling on receive take freed buffers back
             ExhaustionSignal::DropCounter => {
                 let mut batch = FrameBatch::with_capacity(NonZeroUsize::MIN);
                 let late = recv_ok(t, &mut batch, CASE) > 0;

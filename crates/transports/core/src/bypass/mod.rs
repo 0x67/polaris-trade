@@ -2,7 +2,7 @@
 //!
 //! [`Driver`] owns ring, buffers and counters. [`BypassTransport`] wraps it and
 //! does what every backend would repeat: burst telemetry, drop-counter deltas
-//! every [`STATS_EVERY`] calls, [`Reap::Exhausted`] with nothing pushed as
+//! every [`STATS_EVERY`] calls, [`Polled::Exhausted`] with nothing pushed as
 //! [`TransportError::PoolExhausted`], and deferral of error met after frames
 //! were pushed. Driver [`Layer`] picks receive trait: [`L4`] yields
 //! [`DatagramRecv`], [`L2`] yields [`L2Recv`] for [`UdpDecap`](crate::decap::UdpDecap).
@@ -21,9 +21,9 @@ use crate::{DatagramRecv, FrameBatch, L2Recv, PoolStats, Transport, TransportErr
 /// keeps counter reads that cost syscall (`AF_XDP`, DPDK) off every idle spin.
 pub const STATS_EVERY: u32 = 1024;
 
-/// Outcome of one [`Driver::reap`].
+/// Outcome of one [`Driver::poll_frames`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Reap {
+pub enum Polled {
     /// Pushed this many frames, at least one.
     Frames(usize),
     /// Ring empty, nothing pushed.
@@ -43,7 +43,7 @@ pub struct DriverStats {
     pub nic_missed: u64,
     /// Frames longer than their buffer, dropped.
     pub truncated: u64,
-    /// Syscalls `reap` made (`io_uring_enter`, `AF_XDP` wakeup), so idle-spin
+    /// Syscalls `poll_frames` made (`io_uring_enter`, `AF_XDP` wakeup), so idle-spin
     /// test can assert it stays flat.
     pub syscalls: u64,
 }
@@ -64,7 +64,7 @@ impl Layer for L2 {}
 
 /// Backend ring or poll-mode device under [`BypassTransport`].
 ///
-/// Pooled drivers recycle buffers of dropped frames at start of each `reap`.
+/// Pooled drivers recycle buffers of dropped frames at start of each `poll_frames`.
 pub trait Driver: Send {
     /// Owned received frame. Holds its buffer until dropped.
     type Frame: AsRef<[u8]> + Send + 'static;
@@ -83,7 +83,7 @@ pub trait Driver: Send {
     ///
     /// Ring or device failure, possibly after frames were pushed this call;
     /// [`BypassTransport`] then returns frames first and error on next call.
-    fn reap(&mut self, out: &mut FrameBatch<Self::Frame>) -> Result<Reap, TransportError>;
+    fn poll_frames(&mut self, out: &mut FrameBatch<Self::Frame>) -> Result<Polled, TransportError>;
 
     /// Current counters.
     fn stats(&self) -> DriverStats;
@@ -99,7 +99,7 @@ pub trait Driver: Send {
 #[derive(Debug)]
 pub struct BypassTransport<D: Driver> {
     driver: D,
-    // met after frames were pushed; returned before next reap
+    // met after frames were pushed; returned before next call
     deferred: Option<TransportError>,
     // driver counters at last drop report
     #[cfg(feature = "observability")]
@@ -141,33 +141,33 @@ impl<D: Driver> BypassTransport<D> {
         debug_assert!(out.spare() > 0, "BypassTransport::recv_burst on full batch");
         #[cfg(feature = "observability")]
         let before = out.len();
-        let result = self.reap(out);
+        let result = self.poll_frames(out);
         #[cfg(feature = "observability")]
         self.report(&out.frames()[before..]);
         result
     }
 
     // frames never travel with `Err`: error after pushes waits in `deferred`
-    fn reap(&mut self, out: &mut FrameBatch<D::Frame>) -> Result<usize, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<D::Frame>) -> Result<usize, TransportError> {
         if let Some(error) = self.deferred.take() {
             return Err(error);
         }
         let before = out.len();
-        let reaped = self.driver.reap(out);
+        let polled = self.driver.poll_frames(out);
         let pushed = out.len() - before;
-        match reaped {
-            Ok(Reap::Exhausted) if pushed == 0 => {
+        match polled {
+            Ok(Polled::Exhausted) if pushed == 0 => {
                 let PoolStats { in_use, capacity } = self.driver.pool_stats();
                 Err(TransportError::PoolExhausted { in_use, capacity })
             }
-            Ok(reap) => {
+            Ok(outcome) => {
                 debug_assert!(
-                    match reap {
-                        Reap::Frames(n) => n == pushed,
-                        Reap::Idle => pushed == 0,
-                        Reap::Exhausted => true,
+                    match outcome {
+                        Polled::Frames(n) => n == pushed,
+                        Polled::Idle => pushed == 0,
+                        Polled::Exhausted => true,
                     },
-                    "Driver::reap returned {reap:?} after pushing {pushed} frames"
+                    "Driver::poll_frames returned {outcome:?} after pushing {pushed} frames"
                 );
                 Ok(pushed)
             }

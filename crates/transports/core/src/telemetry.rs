@@ -5,9 +5,9 @@
 
 /// Metric names emitted on receive path. Prometheus maps `.` to `_` at scrape.
 pub mod metric {
-    /// Frames reaped, label `backend`. Monotonic counter.
+    /// Frames received, label `backend`. Monotonic counter.
     pub const RECV_PACKETS: &str = "transport.recv.packets";
-    /// Bytes reaped, label `backend`. Monotonic counter.
+    /// Bytes received, label `backend`. Monotonic counter.
     pub const RECV_BYTES: &str = "transport.recv.bytes";
     /// Frames lost before reaching caller, labels `backend` and `reason`. Monotonic counter.
     pub const RECV_DROPS: &str = "transport.recv.drops";

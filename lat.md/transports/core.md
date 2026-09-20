@@ -8,7 +8,7 @@ Every backend builds on it: [[socket]] lands datagrams in `VecPool` slabs, and [
 
 Base trait carries identity only. Receive and send are separate traits, so a receive-only backend implements no send method and nothing returns `Unsupported` for a claimed capability.
 
-[[crates/transports/core/src/transport.rs#Transport]] gives the backend name. [[crates/transports/core/src/transport.rs#DatagramRecv]] reaps UDP payloads and [[crates/transports/core/src/transport.rs#L2Recv]] reaps whole Ethernet frames, both synchronous and burst-first. [[crates/transports/core/src/transport.rs#DatagramSend]] sends without blocking: a full socket buffer is an `Io` error of kind `WouldBlock`. [[crates/transports/core/src/transport.rs#Multicast]] joins a group.
+[[crates/transports/core/src/transport.rs#Transport]] gives the backend name. [[crates/transports/core/src/transport.rs#DatagramRecv]] takes UDP payloads and [[crates/transports/core/src/transport.rs#L2Recv]] takes whole Ethernet frames, both synchronous and burst-first. [[crates/transports/core/src/transport.rs#DatagramSend]] sends without blocking: a full socket buffer is an `Io` error of kind `WouldBlock`. [[crates/transports/core/src/transport.rs#Multicast]] joins a group.
 
 [[crates/transports/core/src/transport.rs#StreamRecv]] is an `unsafe trait`: `Ok(n)` promises `dst[..n]` initialised, which lets SoupBinTCP advance its buffer without zeroing. [[crates/transports/core/src/transport.rs#StreamTrySend]] is a partial non-blocking write; [[crates/transports/core/src/transport.rs#StreamSend]] and [[crates/transports/core/src/transport.rs#AsyncReady]] are async and exist only where readiness is truly asynchronous.
 
@@ -36,15 +36,15 @@ Two pools, both in core: heap slabs for sockets and one contiguous slot region f
 
 [[crates/transports/core/src/decap.rs#UdpDecap]] turns any `L2Recv` into a `DatagramRecv`, so [[afxdp]] and [[dpdk]] serve datagram consumers such as MoldUDP64.
 
-It parses Ethernet II with at most one 802.1Q tag, IPv4 without fragments, and UDP to one destination port (optionally one destination address, so A and B feeds sharing a port on one queue stay apart). The payload is bounded by the IPv4 total length, so Ethernet padding never leaks in. Frames that do not fit the caller's batch wait for the next call; a reap whose frames were all filtered is followed by another reap, so `Ok(0)` still means idle. Drops are counted per reason in [[crates/transports/core/src/decap.rs#DecapStats]] and reported as `decap_filtered`. IPv4 only; checksums are not verified.
+It parses Ethernet II with at most one 802.1Q tag, IPv4 without fragments, and UDP to one destination port (optionally one destination address, so A and B feeds sharing a port on one queue stay apart). The payload is bounded by the IPv4 total length, so Ethernet padding never leaks in. Frames that do not fit the caller's batch wait for the next call; a burst whose frames were all filtered is followed by another burst, so `Ok(0)` still means idle. Drops are counted per reason in [[crates/transports/core/src/decap.rs#DecapStats]] and reported as `decap_filtered`. IPv4 only; checksums are not verified.
 
 ## Kernel-bypass shell
 
 One generic transport serves io_uring, AF_XDP and DPDK: each backend supplies only a driver, and the shell adds telemetry, exhaustion mapping and error deferral once.
 
-[[crates/transports/core/src/bypass/mod.rs#Driver]] reaps frames without blocking and reports monotonic counters (`no_buffer`, `nic_missed`, `truncated`, `syscalls`); its `Layer` (`L4` or `L2`) decides whether [[crates/transports/core/src/bypass/mod.rs#BypassTransport]] implements `DatagramRecv` or `L2Recv`. `Exhausted` with nothing pushed becomes `PoolExhausted`; a driver error met after frames were pushed is returned on the next call, so frames never travel with `Err` and `Ok(0)` stays idle. While the metrics gate is on, the shell records each non-empty burst and reads driver counters every [[crates/transports/core/src/bypass/mod.rs#STATS_EVERY]] (1024) calls, empty or not, reporting only their increase.
+[[crates/transports/core/src/bypass/mod.rs#Driver]] polls frames without blocking and reports monotonic counters (`no_buffer`, `nic_missed`, `truncated`, `syscalls`); its `Layer` (`L4` or `L2`) decides whether [[crates/transports/core/src/bypass/mod.rs#BypassTransport]] implements `DatagramRecv` or `L2Recv`. `Exhausted` with nothing pushed becomes `PoolExhausted`; a driver error met after frames were pushed is returned on the next call, so frames never travel with `Err` and `Ok(0)` stays idle. While the metrics gate is on, the shell records each non-empty burst and reads driver counters every [[crates/transports/core/src/bypass/mod.rs#STATS_EVERY]] (1024) calls, empty or not, reporting only their increase.
 
-Pooled drivers ([[io-uring]], [[afxdp]]) recycle freed slots at the start of each reap; [[dpdk]] frees mbufs in place. Each backend wraps the shell in its own type without exposing it, so users never reach a real driver.
+Pooled drivers ([[io-uring]], [[afxdp]]) recycle freed slots at the start of each call; [[dpdk]] frees mbufs in place. Each backend wraps the shell in its own type without exposing it, so users never reach a real driver.
 
 [[crates/transports/core/src/bypass/mock.rs#MockDriver]] (feature `testing`) copies injected bytes into a free `IndexPool` slot at once, as NIC DMA would, and counts `no_buffer` when none is free. Its `L2` flavour carries whole Ethernet frames for `UdpDecap`. `new` panics on a pool with a live frame, in release builds too: that slot would be listed free and safe `inject` would overwrite bytes the frame still reads.
 
@@ -101,7 +101,7 @@ The old trait shape forced every backend to claim capabilities it lacked, and ex
 
 Unit and integration tests need no privilege and run on every OS; Miri covers the pools and the bypass shell.
 
-- `tests/bypass.rs`: `l4_shell_passes_datagram_conformance` and `l2_shell_under_decap_passes_datagram_conformance` run the suite over the mock; `decap_delivers_reap_larger_than_out_across_calls`, `decap_reaps_again_when_whole_reap_is_filtered`, `driver_error_after_frames_waits_one_call_and_returns_once`, `exhausted_is_pool_exhausted_only_when_nothing_pushed`, and (with `observability`) `no_buffer_delta_reported_every_stats_every_calls`.
+- `tests/bypass.rs`: `l4_shell_passes_datagram_conformance` and `l2_shell_under_decap_passes_datagram_conformance` run the suite over the mock; `decap_delivers_burst_larger_than_out_across_calls`, `decap_polls_again_when_whole_burst_is_filtered`, `driver_error_after_frames_waits_one_call_and_returns_once`, `exhausted_is_pool_exhausted_only_when_nothing_pushed`, and (with `observability`) `no_buffer_delta_reported_every_stats_every_calls`.
 - `tests/miri_pool.rs` (also under Miri): every slab handed out then reused, frames at non-zero offsets reading their own bytes, cross-thread drop returning a slot, frames dropped on one thread while another drains each returning exactly once, oversized pools rejected.
 - `tests/zero_alloc.rs`: steady-state bursts allocate nothing on the L4 shell and on the L2 shell under `UdpDecap`.
 - In-crate: `parse_udp` over plain, VLAN, IPv4 options, padding, fragments, wrong port or address, non-UDP, non-IPv4 and truncated frames; zero-count telemetry records nothing; config validation.

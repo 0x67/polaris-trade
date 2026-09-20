@@ -50,7 +50,7 @@ impl AsRef<[u8]> for UdpFrame {
     }
 }
 
-/// Reap datagrams into `out` until socket empty, `out` full or pool empty.
+/// Take datagrams into `out` until socket empty, `out` full or pool empty.
 ///
 /// Error left in `deferred` by previous call returns first, before any
 /// syscall. Error met after frames were pushed waits in `deferred`, so frames

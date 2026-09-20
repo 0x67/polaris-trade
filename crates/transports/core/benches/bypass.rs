@@ -33,7 +33,7 @@ fn drain_burst(c: &mut Criterion) {
     let mut group = c.benchmark_group("bypass");
     group.throughput(Throughput::Elements(BURST as u64));
     // inject untimed: mock copy stands in for NIC DMA, and mock recycles freed
-    // slots there. Timed: shell, reap, frame drop; one clock pair per burst.
+    // slots there. Timed: shell, receive, frame drop; one clock pair per burst.
     group.bench_function("drain_burst", |b| {
         b.iter_custom(|iters| {
             let mut timed = Duration::ZERO;

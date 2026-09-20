@@ -11,7 +11,7 @@ use std::{
 
 use transport_core::{
     DatagramRecv, FrameBatch, PoolStats, TransportError,
-    bypass::{BypassTransport, Driver, DriverStats, L2, L4, MockDriver, Reap},
+    bypass::{BypassTransport, Driver, DriverStats, L2, L4, MockDriver, Polled},
     decap::{DecapStats, UdpDecap},
     pool::IndexPool,
     testing::conformance::{DatagramHarness, ExhaustionSignal, run_datagram},
@@ -57,7 +57,7 @@ fn l2_shell_under_decap_passes_datagram_conformance() {
 }
 
 #[test]
-fn decap_delivers_reap_larger_than_out_across_calls() {
+fn decap_delivers_burst_larger_than_out_across_calls() {
     let shell = BypassTransport::new(mock::<L2>(NonZeroU32::new(16).unwrap()));
     let mut t = UdpDecap::new(shell, PORT, None, DECAP_BURST);
     for i in 0..4 {
@@ -69,11 +69,11 @@ fn decap_delivers_reap_larger_than_out_across_calls() {
     for i in 0..4 {
         assert_eq!(t.recv_burst(&mut out).unwrap(), 1, "call {i}");
         if i == 0 {
-            // one delivered, three waiting inside decap: single inner reap took all four
+            // one delivered, three waiting inside decap: single inner burst took all four
             assert_eq!(
                 t.pool_stats().in_use,
                 4,
-                "inner reap bounded by burst, not by out"
+                "inner burst bounded by burst size, not by out"
             );
         }
         let frame = out.drain().next().unwrap();
@@ -85,10 +85,10 @@ fn decap_delivers_reap_larger_than_out_across_calls() {
 }
 
 #[test]
-fn decap_reaps_again_when_whole_reap_is_filtered() {
+fn decap_polls_again_when_whole_burst_is_filtered() {
     let shell = BypassTransport::new(mock::<L2>(NonZeroU32::new(16).unwrap()));
     let mut t = UdpDecap::new(shell, PORT, None, DECAP_BURST);
-    // first inner reap takes only other-port frames; match waits for second
+    // first inner burst takes only other-port frames; match waits for second
     for i in 0..DECAP_BURST.get() {
         let other = support::udp_frame(PORT + 1, &[u8::try_from(i).unwrap()]);
         t.inner_mut().driver_mut().inject(&other);
@@ -109,10 +109,10 @@ fn decap_reaps_again_when_whole_reap_is_filtered() {
     );
 }
 
-// frame pushed, if any, then what `reap` returns
-type Step = (Option<&'static str>, Result<Reap, TransportError>);
+// frame pushed, if any, then what `poll_frames` returns
+type Step = (Option<&'static str>, Result<Polled, TransportError>);
 
-// plays one step per reap, then idles; fixed pool stats
+// plays one step per call, then idles; fixed pool stats
 struct Scripted {
     steps: VecDeque<Step>,
     pool: PoolStats,
@@ -123,9 +123,9 @@ impl Driver for Scripted {
     type Layer = L4;
     const BACKEND: &'static str = "scripted";
 
-    fn reap(&mut self, out: &mut FrameBatch<Vec<u8>>) -> Result<Reap, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<Vec<u8>>) -> Result<Polled, TransportError> {
         let Some((frame, end)) = self.steps.pop_front() else {
-            return Ok(Reap::Idle);
+            return Ok(Polled::Idle);
         };
         if let Some(frame) = frame {
             out.push(frame.as_bytes().to_vec());
@@ -170,7 +170,7 @@ fn recv(t: &mut BypassTransport<Scripted>) -> (Result<usize, TransportError>, Ve
 fn driver_error_after_frames_waits_one_call_and_returns_once() {
     let mut t = scripted([
         (Some("a"), Err(io_error("after frames"))),
-        (Some("b"), Ok(Reap::Frames(1))),
+        (Some("b"), Ok(Polled::Frames(1))),
         (None, Err(io_error("nothing pushed"))),
     ]);
 
@@ -189,10 +189,10 @@ fn driver_error_after_frames_waits_one_call_and_returns_once() {
         ),
         "deferred error: {second:?}"
     );
-    assert!(frames.is_empty(), "deferred error returned without reaping");
+    assert!(frames.is_empty(), "deferred error returned without frames");
 
     let (third, frames) = recv(&mut t);
-    assert!(matches!(third, Ok(1)), "reap resumes: {third:?}");
+    assert!(matches!(third, Ok(1)), "receive resumes: {third:?}");
     assert_eq!(frames, [b"b"]);
 
     let (fourth, _) = recv(&mut t);
@@ -216,8 +216,8 @@ fn driver_error_after_frames_waits_one_call_and_returns_once() {
 #[test]
 fn exhausted_is_pool_exhausted_only_when_nothing_pushed() {
     let mut t = scripted([
-        (None, Ok(Reap::Exhausted)),
-        (Some("a"), Ok(Reap::Exhausted)),
+        (None, Ok(Polled::Exhausted)),
+        (Some("a"), Ok(Polled::Exhausted)),
     ]);
 
     let (empty, _) = recv(&mut t);

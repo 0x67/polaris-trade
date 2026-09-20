@@ -2,19 +2,19 @@
 
 use std::{collections::VecDeque, marker::PhantomData, ptr};
 
-use super::{Driver, DriverStats, Layer, Reap};
+use super::{Driver, DriverStats, Layer, Polled};
 use crate::{
     FrameBatch, PoolStats, TransportError,
     pool::{IndexFrame, IndexPool},
 };
 
-/// Test driver over [`IndexPool`]: [`inject`](Self::inject) plays NIC, `reap`
-/// delivers in injection order.
+/// Test driver over [`IndexPool`]: [`inject`](Self::inject) plays NIC,
+/// `poll_frames` delivers in injection order.
 ///
 /// Each slot sits in exactly one place: free list, queue or live frame.
 /// Injection that finds no free slot counts `no_buffer` and drops bytes, so
-/// conformance suite runs mock with `ExhaustionSignal::DropCounter`; `reap`
-/// never returns [`Reap::Exhausted`]. `L` is [`L4`](super::L4) for UDP
+/// conformance suite runs mock with `ExhaustionSignal::DropCounter`;
+/// `poll_frames` never returns [`Polled::Exhausted`]. `L` is [`L4`](super::L4) for UDP
 /// payloads or [`L2`](super::L2) for whole Ethernet frames.
 #[derive(Debug)]
 pub struct MockDriver<L> {
@@ -23,7 +23,7 @@ pub struct MockDriver<L> {
     free: Vec<u32>,
     // `drain_freed` swap target, empty between calls
     freed: Vec<u32>,
-    // filled slots awaiting reap: (slot, len)
+    // filled slots awaiting collection: (slot, len)
     queue: VecDeque<(u32, u32)>,
     stats: DriverStats,
     // fn pointer: `Send` never depends on `L`
@@ -32,7 +32,7 @@ pub struct MockDriver<L> {
 
 impl<L> MockDriver<L> {
     /// Take every slot of `pool`, which must hold no live frame. Allocates
-    /// here once; `inject` and `reap` never allocate.
+    /// here once; `inject` and `poll_frames` never allocate.
     ///
     /// # Panics
     ///
@@ -55,7 +55,7 @@ impl<L> MockDriver<L> {
         }
     }
 
-    /// Land `bytes` in free slot, queued for next reap.
+    /// Land `bytes` in free slot, queued for next `poll_frames`.
     ///
     /// Longer than slot stride: counts `truncated`, dropped. No free slot:
     /// counts `no_buffer`, dropped.
@@ -90,7 +90,7 @@ impl<L: Layer> Driver for MockDriver<L> {
     type Layer = L;
     const BACKEND: &'static str = "mock";
 
-    fn reap(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Reap, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Polled, TransportError> {
         self.recycle();
         let mut pushed = 0;
         while out.spare() > 0
@@ -103,9 +103,9 @@ impl<L: Layer> Driver for MockDriver<L> {
             pushed += 1;
         }
         Ok(if pushed == 0 {
-            Reap::Idle
+            Polled::Idle
         } else {
-            Reap::Frames(pushed)
+            Polled::Frames(pushed)
         })
     }
 

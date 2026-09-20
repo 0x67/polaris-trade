@@ -35,20 +35,20 @@ const FRAGMENT_BITS: u16 = 0x3fff;
 
 /// Datagram source over L2 source: each frame decapsulated to its UDP payload.
 ///
-/// Each inner reap takes at most `burst` frames. Frames that do not fit
-/// `out` wait in fixed queue and go out first on next call; `inner` is reaped
+/// Each inner call takes at most `burst` frames. Frames that do not fit
+/// `out` wait in fixed queue and go out first on next call; `inner` is read
 /// only once that queue is empty, so nothing drops for lack of room and
-/// nothing grows. Reap whose frames all fail filter triggers another reap in
-/// same call, so `Ok(0)` still means idle. Filtered frames drop at once,
+/// nothing grows. Burst whose frames all fail filter triggers another burst
+/// in same call, so `Ok(0)` still means idle. Filtered frames drop at once,
 /// returning their buffers.
 #[derive(Debug)]
 pub struct UdpDecap<S: L2Recv> {
     inner: S,
     dst_port: u16,
     dst_ip: Option<Ipv4Addr>,
-    // lands each inner reap; capacity `burst`
-    reaped: FrameBatch<S::Frame>,
-    // reaped frames not yet delivered; refilled only when empty, so never above `burst`
+    // lands each inner burst; capacity `burst`
+    collected: FrameBatch<S::Frame>,
+    // collected frames not yet delivered; refilled only when empty, so never above `burst`
     pending: VecDeque<S::Frame>,
     stats: DecapStats,
 }
@@ -56,7 +56,7 @@ pub struct UdpDecap<S: L2Recv> {
 impl<S: L2Recv> UdpDecap<S> {
     /// Wrap `inner`, keeping UDP datagrams to `dst_port` and, when set, `dst_ip`.
     ///
-    /// `burst` bounds every inner reap and sizes both internal queues,
+    /// `burst` bounds every inner call and sizes both internal queues,
     /// allocated here once.
     ///
     /// # Panics
@@ -67,7 +67,7 @@ impl<S: L2Recv> UdpDecap<S> {
             inner,
             dst_port,
             dst_ip,
-            reaped: FrameBatch::with_capacity(burst),
+            collected: FrameBatch::with_capacity(burst),
             pending: VecDeque::with_capacity(burst.get()),
             stats: DecapStats::default(),
         }
@@ -78,7 +78,7 @@ impl<S: L2Recv> UdpDecap<S> {
         &self.inner
     }
 
-    /// Wrapped L2 source, mutably. Reaping through it bypasses decap.
+    /// Wrapped L2 source, mutably. Receiving through it bypasses decap.
     pub fn inner_mut(&mut self) -> &mut S {
         &mut self.inner
     }
@@ -109,7 +109,7 @@ impl<S: L2Recv> UdpDecap<S> {
         pushed
     }
 
-    // reaps only while nothing pushed yet, so inner error never follows pushed frames
+    // reads inner only while nothing pushed yet, so inner error never follows pushed frames
     fn fill(
         &mut self,
         out: &mut FrameBatch<DecapFrame<S::Frame>>,
@@ -120,10 +120,10 @@ impl<S: L2Recv> UdpDecap<S> {
                 return Ok(pushed);
             }
             // `out` has room, so `deliver` emptied `pending`
-            if self.inner.recv_burst(&mut self.reaped)? == 0 {
+            if self.inner.recv_burst(&mut self.collected)? == 0 {
                 return Ok(0);
             }
-            self.pending.extend(self.reaped.drain());
+            self.pending.extend(self.collected.drain());
         }
     }
 }

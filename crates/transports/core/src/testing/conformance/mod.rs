@@ -20,7 +20,7 @@
 //! - `pool_stats`: `capacity` equals `build` argument; `in_use` never exceeds
 //!   it and counts at least every frame caller holds; once caller drops them,
 //!   `in_use` returns to its value before they were received, at once or
-//!   after next `recv_burst` (drivers recycling on reap).
+//!   after next `recv_burst` (drivers recycling on receive).
 //!
 //! # Stream contract
 //!

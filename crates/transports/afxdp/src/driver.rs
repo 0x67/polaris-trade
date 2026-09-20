@@ -2,7 +2,7 @@
 //!
 //! Each slot sits in exactly one place: fill ring, kernel, receive ring, one live
 //! [`IndexFrame`], pool's freed list or driver's free list. Frame drop queues its
-//! slot on freed list; next `reap` moves it to free list, then fill ring. Kernel
+//! slot on freed list; next `poll_frames` moves it to free list, then fill ring. Kernel
 //! hands slot back through receive ring only, so slot never sits in fill ring
 //! and in live frame at once.
 
@@ -19,7 +19,7 @@ use std::{
 use socket2::{Domain, Socket, Type};
 use transport_core::{
     FrameBatch, PoolStats, TransportError,
-    bypass::{Driver, DriverStats, L2, Reap},
+    bypass::{Driver, DriverStats, L2, Polled},
     pool::{IndexFrame, IndexPool},
 };
 
@@ -174,16 +174,16 @@ impl Driver for XskDriver {
     const BACKEND: &'static str = BACKEND;
 
     #[inline]
-    fn reap(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Reap, TransportError> {
+    fn poll_frames(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Polled, TransportError> {
         self.rings.refill(&self.pool);
-        let pushed = self.rings.reap(&self.pool, out);
+        let pushed = self.rings.poll_frames(&self.pool, out);
         if pushed > 0 {
-            return Ok(Reap::Frames(pushed));
+            return Ok(Polled::Frames(pushed));
         }
         if self.rings.fill.needs_wakeup() {
             self.wake()?;
         }
-        Ok(Reap::Idle)
+        Ok(Polled::Idle)
     }
 
     fn stats(&self) -> DriverStats {
@@ -254,7 +254,7 @@ impl Rings {
     }
 
     // drain receive ring until frame pushed, `out` full or ring empty
-    fn reap(&mut self, pool: &IndexPool, out: &mut FrameBatch<IndexFrame>) -> usize {
+    fn poll_frames(&mut self, pool: &IndexPool, out: &mut FrameBatch<IndexFrame>) -> usize {
         let mut pushed = 0;
         loop {
             let room = u32::try_from(out.spare()).unwrap_or(u32::MAX);
@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn reap_yields_bytes_at_descriptor_address_bounded_by_spare() {
+    fn poll_frames_yields_bytes_at_descriptor_address_bounded_by_spare() {
         let kernel = Kernel::new();
         let (mut rings, chunks) = kernel.rings();
         assert_eq!(chunks.len(), 4, "first refill hands every frame to kernel");
@@ -656,9 +656,17 @@ mod tests {
         }
 
         let mut out = FrameBatch::with_capacity(NonZeroUsize::new(2).unwrap());
-        assert_eq!(rings.reap(&kernel.pool, &mut out), 2, "bounded by spare");
+        assert_eq!(
+            rings.poll_frames(&kernel.pool, &mut out),
+            2,
+            "bounded by spare"
+        );
         let mut frames: Vec<IndexFrame> = out.drain().collect();
-        assert_eq!(rings.reap(&kernel.pool, &mut out), 1, "rest stays in ring");
+        assert_eq!(
+            rings.poll_frames(&kernel.pool, &mut out),
+            1,
+            "rest stays in ring"
+        );
         frames.extend(out.drain());
         let got: Vec<&[u8]> = frames.iter().map(AsRef::as_ref).collect();
         let want: Vec<&[u8]> = sent.iter().map(|(_, bytes)| *bytes).collect();
@@ -667,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn reap_counts_overrun_descriptor_and_recycles_its_slot_only() {
+    fn poll_frames_counts_overrun_descriptor_and_recycles_its_slot_only() {
         let kernel = Kernel::new();
         let (mut rings, chunks) = kernel.rings();
         let (held, over) = (chunks[0], chunks[1]);
@@ -677,7 +685,7 @@ mod tests {
 
         let mut out = FrameBatch::with_capacity(NonZeroUsize::new(4).unwrap());
         assert_eq!(
-            rings.reap(&kernel.pool, &mut out),
+            rings.poll_frames(&kernel.pool, &mut out),
             1,
             "only in-bounds descriptor framed"
         );

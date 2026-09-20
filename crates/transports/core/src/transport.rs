@@ -23,7 +23,7 @@ pub trait DatagramRecv: Transport {
     /// Owned received datagram. Holds its buffer until dropped.
     type Frame: AsRef<[u8]> + Send + 'static;
 
-    /// Reap up to `out.spare()` datagrams into `out`, returning count pushed.
+    /// Take up to `out.spare()` datagrams into `out`, returning count pushed.
     ///
     /// Precondition: `out.spare() > 0` (caller drains first; implementations
     /// debug-assert it), so `Ok(0)` always means idle, never no room.
@@ -43,7 +43,7 @@ pub trait L2Recv: Transport {
     /// Owned received Ethernet frame. Holds its buffer until dropped.
     type Frame: AsRef<[u8]> + Send + 'static;
 
-    /// Reap up to `out.spare()` frames into `out`, returning count pushed.
+    /// Take up to `out.spare()` frames into `out`, returning count pushed.
     ///
     /// Precondition: `out.spare() > 0` (caller drains first; implementations
     /// debug-assert it), so `Ok(0)` always means idle, never no room.
@@ -187,7 +187,7 @@ impl<F> FrameBatch<F> {
         &self.frames
     }
 
-    /// Append one reaped frame. Backends call this only while `spare() > 0`,
+    /// Append one received frame. Backends call this only while `spare() > 0`,
     /// so correct backend never makes batch reallocate.
     ///
     /// # Panics

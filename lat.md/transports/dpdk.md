@@ -12,9 +12,9 @@ DPDK poll-mode receive over a caller-initialised EAL, one mbuf per frame, linked
 
 ## Receive path
 
-One shim call per burst reaps mbufs and reads each one's data pointer, length and segment count; no per-frame FFI follows until the frame drops.
+One shim call per burst takes mbufs and reads each one's data pointer, length and segment count; no per-frame FFI follows until the frame drops.
 
-[[crates/transports/dpdk/src/driver.rs#PmdDriver]] asks for `min(spare, burst)` mbufs. The pure [[crates/transports/dpdk/src/driver.rs#settle]] then turns single-segment mbufs into frames in arrival order, frees chained ones in one `rte_pktmbuf_free_bulk` and counts them `truncated`, and returns the number delivered, never the number received. A chained mbuf never becomes an error; a burst of only chained mbufs triggers another reap, so `Ok(0)` still means empty. The PMD refills its ring from the mempool itself, so the driver has no recycle step and never reports `Exhausted`.
+[[crates/transports/dpdk/src/driver.rs#PmdDriver]] asks for `min(spare, burst)` mbufs. The pure [[crates/transports/dpdk/src/driver.rs#settle]] then turns single-segment mbufs into frames in arrival order, frees chained ones in one `rte_pktmbuf_free_bulk` and counts them `truncated`, and returns the number delivered, never the number received. A chained mbuf never becomes an error; a burst of only chained mbufs triggers another burst, so `Ok(0)` still means empty. The PMD refills its ring from the mempool itself, so the driver has no recycle step and never reports `Exhausted`.
 
 [[crates/transports/dpdk/src/frame.rs#MbufFrame]] owns exactly one mbuf, caches its data pointer and length so `as_ref` makes no FFI call, and frees the mbuf on drop through the multi-producer mempool put. Vector PMDs round a request down to a multiple of 4 or 8, so callers keep the batch drained and offer the full burst.
 

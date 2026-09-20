@@ -3,7 +3,7 @@
 //! `AF_XDP` receive for Linux over raw XSK driver and its own XDP redirect program.
 //!
 //! `AfxdpL2` binds one interface queue, registers one
-//! [`IndexPool`](transport_core::pool::IndexPool) region as UMEM and reaps whole
+//! [`IndexPool`](transport_core::pool::IndexPool) region as UMEM and receives whole
 //! Ethernet frames through [`transport_core::L2Recv`]. Wrap it in
 //! [`UdpDecap`](transport_core::decap::UdpDecap) to serve datagram consumers. Each
 //! frame starts at its descriptor's address, never at fixed offset.

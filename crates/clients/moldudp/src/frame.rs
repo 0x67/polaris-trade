@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-/// Datagram receiver holds: leg frame as reaped, or retransmission copied off
+/// Datagram receiver holds: leg frame as received, or retransmission copied off
 /// requester socket (its frame type is unrelated to legs', slab freed at once).
 pub(crate) enum Held<F> {
     Frame(F),

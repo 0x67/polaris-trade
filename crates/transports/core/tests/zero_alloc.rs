@@ -26,7 +26,7 @@ fn pool() -> IndexPool {
     IndexPool::new(SLOTS, NonZeroU32::new(2048).unwrap()).unwrap()
 }
 
-// each cycle: inject `BURST`, reap them in one burst, drop every frame
+// each cycle: inject `BURST`, take them in one burst, drop every frame
 fn assert_bursts_allocate_nothing<T: DatagramRecv>(
     t: &mut T,
     mut inject: impl FnMut(&mut T),
@@ -40,7 +40,7 @@ fn assert_bursts_allocate_nothing<T: DatagramRecv>(
         assert_eq!(
             t.recv_burst(&mut out).unwrap(),
             BURST,
-            "{what}: one burst reaps all"
+            "{what}: one burst takes all"
         );
         for frame in out.drain() {
             black_box(frame.as_ref());

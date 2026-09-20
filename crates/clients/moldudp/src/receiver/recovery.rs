@@ -18,9 +18,9 @@ pub(crate) mod sealed {
         /// failure is logged, never returned, so it can't stall leg receive.
         fn send_due(&mut self, session: [u8; 10], gaps: &GapRequestHandler);
 
-        /// Reap one burst, handing each datagram's bytes to `copy` before its
+        /// Take one burst, handing each datagram's bytes to `copy` before its
         /// buffer returns to pool. Returns whether anything arrived.
-        fn reap(&mut self, copy: impl FnMut(&[u8])) -> Result<bool, TransportError>;
+        fn poll_frames(&mut self, copy: impl FnMut(&[u8])) -> Result<bool, TransportError>;
     }
 
     pub trait SealedReady {
@@ -43,7 +43,7 @@ pub struct NoRecovery;
 impl sealed::Sealed for NoRecovery {
     fn send_due(&mut self, _: [u8; 10], _: &GapRequestHandler) {}
 
-    fn reap(&mut self, _: impl FnMut(&[u8])) -> Result<bool, TransportError> {
+    fn poll_frames(&mut self, _: impl FnMut(&[u8])) -> Result<bool, TransportError> {
         Ok(false)
     }
 }
@@ -98,7 +98,7 @@ impl<Q: DatagramRecv + DatagramSend> sealed::Sealed for Requester<Q> {
         }
     }
 
-    fn reap(&mut self, mut copy: impl FnMut(&[u8])) -> Result<bool, TransportError> {
+    fn poll_frames(&mut self, mut copy: impl FnMut(&[u8])) -> Result<bool, TransportError> {
         let n = self.sock.recv_burst(&mut self.scratch)?;
         for frame in self.scratch.drain() {
             copy(frame.as_ref());

@@ -7,7 +7,7 @@
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
 
-/* one call per burst: reap up to nb mbufs, then each one's data pointer, length, segment count */
+/* one call per burst: take up to nb mbufs, then each one's data pointer, length, segment count */
 uint16_t polaris_dpdk_rx_burst(uint16_t port, uint16_t queue, struct rte_mbuf **mbufs,
                                const uint8_t **data, uint16_t *len, uint16_t *nb_segs,
                                uint16_t nb)

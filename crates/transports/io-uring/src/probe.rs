@@ -125,7 +125,7 @@ fn legacy(ring: &IoUring) -> bool {
 }
 
 // immediate ENOBUFS or no completion: supported. Request left armed ends with
-// ENOBUFS once probe group is gone, under `UD_PROBE`, which reap ignores
+// ENOBUFS once probe group is gone, under `UD_PROBE`, which driver ignores
 fn multishot(ring: &mut IoUring, fd: RawFd) -> Result<bool, TransportError> {
     let entry = opcode::RecvMulti::new(types::Fd(fd), PROBE_BGID)
         .flags(libc::MSG_TRUNC)

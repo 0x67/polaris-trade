@@ -1,4 +1,4 @@
-//! Synchronous receive: send due re-requests, reap every source, decode.
+//! Synchronous receive: send due re-requests, poll every source, decode.
 
 use std::time::Instant;
 
@@ -27,7 +27,7 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
         }
     }
 
-    /// Send due re-requests, then reap and decode until `ready` holds item or
+    /// Send due re-requests, then poll and decode until `ready` holds item or
     /// every source (legs, plus requester while gap pending) returned nothing.
     pub(super) fn pump(&mut self) -> Result<(), MoldUdpError> {
         let inner = &mut self.inner;
@@ -41,15 +41,15 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
                 return Ok(());
             }
             if inner.pending_datagrams.is_empty() {
-                let mut reaped = inner.reap_legs()?;
+                let mut landed = inner.poll_legs()?;
                 if inner.gap_handler.has_pending() {
                     let stream = inner.recovery_stream;
                     let pending = &mut inner.pending_datagrams;
-                    reaped |= self.recovery.reap(|bytes| {
+                    landed |= self.recovery.poll_frames(|bytes| {
                         pending.push_back((stream, Held::Copied(bytes.into())));
                     })?;
                 }
-                if !reaped {
+                if !landed {
                     return Ok(());
                 }
             }

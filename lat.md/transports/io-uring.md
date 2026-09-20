@@ -18,19 +18,19 @@ Detection asks the running kernel rather than its version string, so distributio
 
 ## Buffers and recv fleet
 
-Every path lands datagrams in one `IndexPool` region; buffer id equals slot. Slots return to the kernel in one batch per reap.
+Every path lands datagrams in one `IndexPool` region; buffer id equals slot. Slots return to the kernel in one batch per call.
 
 Legacy provides the whole region with one `ProvideBuffers` at bind and one per contiguous run of freed slots afterwards, with `SKIP_SUCCESS` when the kernel has it. BufRing and Multishot push entries into [[crates/transports/io-uring/src/ring_mem.rs#RingMem]], an mmap'd ring whose tail sits in entry 0; pushes write entry fields one by one, never that tail, and one Release store publishes the batch. Legacy and BufRing keep a fleet of `depth` single-shot recvs armed; Multishot keeps one multishot recv, re-armed whenever a completion lacks `F_MORE`. Every recv passes `MSG_TRUNC`, so [[crates/transports/io-uring/src/completion.rs#classify]] sees a longer datagram's real length: it counts `truncated` and its slot goes straight back. The completion queue is sized for every slot plus the fleet, so it does not overflow in normal operation.
 
-An empty datagram, which any host reaching the port can send, completes on 6.0+ with result 0 and no buffer id, the kernel keeping the buffer: `classify` returns `Empty`, nothing is delivered, the recv is re-armed as for data, and reap reads on. Before 6.0 it arrives as a 0-byte frame. Only a non-empty success without buffer id is `EIO`.
+An empty datagram, which any host reaching the port can send, completes on 6.0+ with result 0 and no buffer id, the kernel keeping the buffer: `classify` returns `Empty`, nothing is delivered, the recv is re-armed as for data, and the driver reads on. Before 6.0 it arrives as a 0-byte frame. Only a non-empty success without buffer id is `EIO`.
 
-[[crates/transports/io-uring/src/driver.rs#provide_runs]] hands legacy runs over one by one; a run that cannot be queued stays in `back` with every later run for the next reap, so no slot leaves the pool, and only handed slots reopen a starved fleet. Reap returns a recv error before a refill error; a failed refill leaves its work queued, so it recurs.
+[[crates/transports/io-uring/src/driver.rs#provide_runs]] hands legacy runs over one by one; a run that cannot be queued stays in `back` with every later run for the next call, so no slot leaves the pool, and only handed slots reopen a starved fleet. The driver returns a recv error before a refill error; a failed refill leaves its work queued, so it recurs.
 
 ## Idle spin and exhaustion
 
-[[crates/transports/io-uring/src/driver.rs#UringDriver#reap]] enters the kernel only when the submission queue holds work or the completion queue overflowed, so an idle spin makes no syscall; `DriverStats::syscalls` counts every enter.
+[[crates/transports/io-uring/src/driver.rs#UringDriver#poll_frames]] enters the kernel only when the submission queue holds work or the completion queue overflowed, so an idle spin makes no syscall; `DriverStats::syscalls` counts every enter.
 
-Default setup flags only: `SINGLE_ISSUER` with `DEFER_TASKRUN` cannot deliver completions without an enter, and SQPOLL is gone. An ENOBUFS completion counts `no_buffer` and starves the fleet: nothing is re-armed until a freed slot goes back, since a recv on an empty group fails at once and would cost one syscall per spin. With the fleet starved and nothing reaped, the shell returns `PoolExhausted`; the datagram waits in the socket buffer. A recv error met after frames were pushed is deferred by the shell.
+Default setup flags only: `SINGLE_ISSUER` with `DEFER_TASKRUN` cannot deliver completions without an enter, and SQPOLL is gone. An ENOBUFS completion counts `no_buffer` and starves the fleet: nothing is re-armed until a freed slot goes back, since a recv on an empty group fails at once and would cost one syscall per spin. With the fleet starved and nothing received, the shell returns `PoolExhausted`; the datagram waits in the socket buffer. A recv error met after frames were pushed is deferred by the shell.
 
 ## Teardown
 
@@ -73,6 +73,6 @@ The old backend used only legacy provided buffers, entered the kernel on every s
 
 Pure logic is tested in-crate on any Linux host; everything touching a real ring is in `tests/real_io_uring.rs`, ignored, run privileged.
 
-In-crate: `classify_maps_every_completion_shape`, `select_honours_forced_path_only_when_present`, `select_auto_picks_best_supported`, config limits, `push_and_publish_wrap_u16_tail_without_touching_published_tail` for `RingMem`, the starved gate (`starved_fleet_arms_nothing_until_slot_goes_back`, `fleet_rearms_only_when_request_ends`), and `failed_provide_keeps_unhanded_slots_for_next_reap`. Probe cleanup on failure and the reap error order need a failing kernel and are not tested.
+In-crate: `classify_maps_every_completion_shape`, `select_honours_forced_path_only_when_present`, `select_auto_picks_best_supported`, config limits, `push_and_publish_wrap_u16_tail_without_touching_published_tail` for `RingMem`, the starved gate (`starved_fleet_arms_nothing_until_slot_goes_back`, `fleet_rearms_only_when_request_ends`), and `failed_provide_keeps_unhanded_slots_for_next_call`. Probe cleanup on failure and the `poll_frames` error order need a failing kernel and are not tested.
 
 Ignored, per forced path (`legacy_path`, `buf_ring_path`, `multishot_path`): the core conformance suite with `PoolExhausted` signalling, `no_buffer` rising at exhaustion, a truncated datagram freeing the only slot, an empty datagram followed by a payload never failing a burst, 10000 idle bursts with `syscalls` flat, and drop confirming cancellation idle and under traffic. Also `multicast_join_receives_group_datagram`, and `bind_without_io_uring_access_is_unavailable`, which must run unprivileged. `benches/classify.rs` times `classify` over a mixed completion stream.

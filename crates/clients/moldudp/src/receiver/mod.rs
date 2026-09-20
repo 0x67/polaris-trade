@@ -1,7 +1,7 @@
 //! Wire codec, reassembler, gap tracking and optional A/B arbiter assembled
 //! into one receiver over caller-built legs of any [`DatagramRecv`].
 //!
-//! [`MoldUdpReceiver::poll`] reaps owned frames by burst. Datagram whose leading
+//! [`MoldUdpReceiver::poll`] collects owned frames by burst. Datagram whose leading
 //! sequence is already `expected_next` drains inline, borrowed straight from
 //! still-owned frame (no allocation); datagram ahead of `expected_next`
 //! promotes its frame to one `Arc` and buffers [`MessageView`]s in reassembler
@@ -109,7 +109,7 @@ enum ReadyItem<F> {
     Gap,
 }
 
-/// Datagram backing outstanding `Inline` items: as reaped, or shared once a
+/// Datagram backing outstanding `Inline` items: as received, or shared once a
 /// message inside it needed buffering. At most one `Arc::new` per datagram.
 enum Backing<F> {
     Owned(Held<F>),
@@ -198,7 +198,7 @@ struct Inner<T: DatagramRecv> {
     ready: VecDeque<ReadyItem<T::Frame>>,
     // item last handed out; its borrow ends when caller calls again
     current: Option<ReadyItem<T::Frame>>,
-    // reaped, not yet decoded into `ready`
+    // received, not yet decoded into `ready`
     pending_datagrams: VecDeque<(u8, Held<T::Frame>)>,
     backing: Backing<T::Frame>,
     // outstanding `Inline` items; `backing` resets (slab reclaimed) at zero

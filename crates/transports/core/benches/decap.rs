@@ -39,7 +39,7 @@ fn decap_burst(c: &mut Criterion) {
     let mut out = FrameBatch::with_capacity(burst);
     let mut group = c.benchmark_group("decap");
     group.throughput(Throughput::Elements(BURST as u64));
-    // inject untimed (stands in for NIC DMA); timed: shell reap, parse, deliver, frame drop
+    // inject untimed (stands in for NIC DMA); timed: shell receive, parse, deliver, frame drop
     group.bench_function("udp_burst", |b| {
         b.iter_custom(|iters| {
             let mut timed = Duration::ZERO;

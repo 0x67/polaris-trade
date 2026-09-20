@@ -1,4 +1,4 @@
-//! Decode path: burst reap, session and sequence checks, reassembly, gap
+//! Decode path: burst receive, session and sequence checks, reassembly, gap
 //! detection, and turning ready items into outcomes.
 
 use std::{cmp::Ordering, mem, sync::Arc, time::Instant};
@@ -102,22 +102,22 @@ impl<T: DatagramRecv> Inner<T> {
         arc
     }
 
-    /// Reap one burst from every leg into `pending_datagrams`, tagged with
+    /// Take one burst from every leg into `pending_datagrams`, tagged with
     /// leg index. Returns whether anything landed.
-    pub(super) fn reap_legs(&mut self) -> Result<bool, MoldUdpError> {
-        let mut reaped = false;
+    pub(super) fn poll_legs(&mut self) -> Result<bool, MoldUdpError> {
+        let mut landed = false;
         for (stream, leg) in (0..=u8::MAX).zip(&mut self.legs) {
             if leg.recv_burst(&mut self.recv_batch)? == 0 {
                 continue;
             }
-            reaped = true;
+            landed = true;
             self.pending_datagrams.extend(
                 self.recv_batch
                     .drain()
                     .map(|frame| (stream, Held::Frame(frame))),
             );
         }
-        Ok(reaped)
+        Ok(landed)
     }
 
     /// Record tail gap from heartbeat or end-of-session next-expected: anything

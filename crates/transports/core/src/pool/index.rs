@@ -2,7 +2,7 @@
 //!
 //! Slot state implicit: slot sits in driver hands (kernel or NIC ring, free
 //! list, freed queue) or in exactly one [`IndexFrame`]. Slot moves to frame only
-//! through [`IndexPool::frame`] on reap and back only through
+//! through [`IndexPool::frame`] when driver collects it and back only through
 //! [`IndexPool::drain_freed`] on recycle.
 
 use std::{
@@ -136,7 +136,7 @@ impl IndexPool {
     }
 }
 
-/// Bytes of one reaped slot. Drop queues slot for recycle.
+/// Bytes of one received slot. Drop queues slot for recycle.
 pub struct IndexFrame {
     shared: Arc<Shared>,
     slot: u32,
