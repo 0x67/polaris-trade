@@ -105,7 +105,6 @@ impl<T: Copy> Producer<T> {
 
     /// Write entries from `items` until ring full or `items` ends, then publish
     /// once. Returns count written; items not taken stay in `items`.
-    #[inline]
     pub(crate) fn produce(&mut self, items: impl Iterator<Item = T>) -> u32 {
         let cons = self.ring.consumer().load(Ordering::Acquire);
         // peer lags at most `size` behind; clamp keeps corrupt word from overwriting
@@ -129,7 +128,6 @@ impl<T: Copy> Producer<T> {
     }
 
     /// Kernel asks for syscall kick before it takes new entries.
-    #[inline]
     pub(crate) fn needs_wakeup(&self) -> bool {
         self.ring.flags().load(Ordering::Relaxed) & libc::XDP_RING_NEED_WAKEUP != 0
     }
@@ -151,7 +149,6 @@ impl<T: Copy> Consumer<T> {
 
     /// Pass up to `max` published entries to `f` in ring order, then release
     /// them to peer at once. Returns count passed.
-    #[inline]
     pub(crate) fn consume(&mut self, max: u32, mut f: impl FnMut(T)) -> u32 {
         let prod = self.ring.producer().load(Ordering::Acquire);
         // clamp keeps corrupt word from replaying stale entries past one lap
