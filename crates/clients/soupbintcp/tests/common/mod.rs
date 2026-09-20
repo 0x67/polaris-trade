@@ -260,6 +260,10 @@ const ACCEPTED: Step = Step::Login(LoginWant::Accepted {
 pub fn cases() -> Vec<Case> {
     let big: Vec<Vec<u8>> = (0..12u8).map(|i| vec![i; 60_000]).collect();
     let big_wire: Vec<u8> = big.iter().flat_map(|p| packet(b'U', p)).collect();
+    // ~64 KiB, one write: compressed, one read inflates past `decode_buf_capacity`;
+    // size leaves inflate output pending after staging empties
+    let burst: Vec<Vec<u8>> = (0..64u8).map(|i| vec![i; 1000]).collect();
+    let burst_wire: Vec<u8> = burst.iter().flat_map(|p| packet(b'S', p)).collect();
     vec![
         case(
             "login accepted after early server heartbeat",
@@ -308,6 +312,27 @@ pub fn cases() -> Vec<Case> {
                 Step::Next(Got::Data(b"b".to_vec(), 8)),
                 Step::Next(Got::Data(b"c".to_vec(), 9)),
             ],
+        ),
+        case(
+            "burst past decode buffer in one write",
+            // logout keeps server reading, so a stalled client fails on its
+            // read timeout instead of being woken by server close
+            vec![
+                Srv::Login,
+                Srv::Write(login_accepted("sess001", 1)),
+                Srv::Write(burst_wire),
+                Srv::Expect(packet(b'O', &[])),
+            ],
+            [ACCEPTED]
+                .into_iter()
+                .chain(
+                    burst
+                        .into_iter()
+                        .zip(1..)
+                        .map(|(payload, seq)| Step::Next(Got::Data(payload, seq))),
+                )
+                .chain([Step::Logout, Step::Closed])
+                .collect(),
         ),
         Case {
             cfg: SoupBinClientConfig {

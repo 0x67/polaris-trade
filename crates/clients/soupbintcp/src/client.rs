@@ -231,6 +231,12 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
     /// Wait until transport is readable, then land its bytes. No deadline:
     /// heartbeat silence is caught by `tick_heartbeat`.
     async fn await_more_bytes(&mut self) -> Result<(), SoupBinError> {
+        // staged compressed input needs no new bytes; socket may hold none
+        #[cfg(feature = "compressed")]
+        if self.session.staged() {
+            self.session.ingest(&mut self.transport, Instant::now())?;
+            return Ok(());
+        }
         self.transport.ready().await?;
         self.session.ingest(&mut self.transport, Instant::now())?;
         Ok(())
@@ -242,6 +248,11 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
         &mut self,
         deadline: Instant,
     ) -> Result<(), SoupBinError> {
+        #[cfg(feature = "compressed")]
+        if self.session.staged() {
+            self.session.ingest(&mut self.transport, Instant::now())?;
+            return Ok(());
+        }
         // scoped: pinned future holds `&mut self.transport` until dropped
         let ready = {
             let mut ready = pin!(self.transport.ready());

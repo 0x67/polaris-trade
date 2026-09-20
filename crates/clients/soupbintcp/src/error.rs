@@ -27,10 +27,10 @@ pub enum SoupBinError {
         timeout: Duration,
     },
 
-    /// Packet longer than `max_frame_size`, or inflate past its cap.
+    /// Packet longer than `max_frame_size`.
     #[error("frame too large: {size} bytes (max {max})")]
     FrameTooLarge {
-        /// Packet or inflated size.
+        /// Packet size.
         size: usize,
         /// Configured limit.
         max: usize,

@@ -71,7 +71,7 @@ The client needs no privilege and makes no socket call of its own; it runs where
 
 ## Design
 
-Receive lands transport bytes straight into the decode buffer's spare capacity through `StreamRecv::recv_into`, whose `unsafe` trait contract guarantees the returned length was initialised, so the uncompressed stream has one copy and `BytesMut` framing stays refcount-free after. The compressed variant adds an inflate step, which needs a contiguous compressed chunk. Outbound bytes queue in one buffer whose front is where a partial write resumes, shared by both drivers.
+Receive lands transport bytes straight into the decode buffer's spare capacity through `StreamRecv::recv_into`, whose `unsafe` trait contract guarantees the returned length was initialised, so the uncompressed stream has one copy and `BytesMut` framing (`split_to`) adds no copy after. The compressed variant reads into a staging buffer, since inflate needs a contiguous compressed chunk, then inflates at most `decode_buf_capacity` bytes per step and dispatches them before the next step; the socket is read again only once staged input and pending inflate output are used up. A high compression ratio (a replay backlog) therefore decodes in full, and a zlib bomb never grows memory past that bound. Outbound bytes queue in one buffer whose front is where a partial write resumes, shared by both drivers.
 
 ## Features
 
@@ -93,7 +93,7 @@ cargo nextest run -p client_soupbintcp
 cargo nextest run -p client_soupbintcp --features tokio,compressed,observability
 ```
 
-One protocol table (login accepted and rejected, login timeout, sequenced data, heartbeats both ways, heartbeat timeout, partial writes, logout, end of session, peer close) runs through the sync API over `MioTcp` and through the async API over tokio `TcpStream`, against a local mock server.
+One protocol table (login accepted and rejected, login timeout, sequenced data, a burst of about 64 KiB in one server write, heartbeats both ways, heartbeat timeout, partial writes, logout, end of session, peer close) runs through the sync API over `MioTcp` and through the async API over tokio `TcpStream`, against a local mock server.
 
 ## Logging
 

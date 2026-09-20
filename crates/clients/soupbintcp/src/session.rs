@@ -63,7 +63,8 @@ pub(crate) struct Session {
     login_deadline: Instant,
     #[cfg(feature = "compressed")]
     inflate: CompressedReader,
-    // compressed bytes land here first: inflate needs contiguous input, second copy
+    // compressed bytes land here first (inflate needs contiguous input, second
+    // copy); unconsumed tail waits for next inflate step
     #[cfg(feature = "compressed")]
     recv_staging: BytesMut,
 }
@@ -206,42 +207,47 @@ impl Session {
         true
     }
 
-    /// Land one `recv_into` chunk, returning bytes read. Uncompressed: straight
-    /// into decode buffer's spare capacity. Compressed: into staging, then
-    /// inflated into decode buffer. Refreshes server liveness only on bytes.
+    /// Compressed input not yet inflated: next `ingest` reads no socket, so
+    /// async driver must not wait on readiness first.
+    #[cfg(feature = "compressed")]
+    pub(crate) fn staged(&self) -> bool {
+        !self.recv_staging.is_empty() || self.inflate.capped()
+    }
+
+    /// Land one `recv_into` chunk or inflate one step; `false` once transport
+    /// reads nothing, so parked caller may wait. Uncompressed: straight into
+    /// decode buffer's spare capacity. Compressed: socket bytes go to staging
+    /// only once staging drained, and each call inflates at most
+    /// `decode_buf_capacity` bytes for caller to dispatch before next. Refreshes
+    /// server liveness only on bytes read.
     pub(crate) fn ingest<T: StreamRecv>(
         &mut self,
         transport: &mut T,
         now: Instant,
-    ) -> Result<usize, SoupBinError> {
+    ) -> Result<bool, SoupBinError> {
         #[cfg(feature = "compressed")]
-        let n = {
-            self.recv_staging.clear();
-            self.recv_staging.reserve(self.cfg.decode_buf_capacity);
-            let n = transport.recv_into(self.recv_staging.spare_capacity_mut())?;
-            // SAFETY: `StreamRecv` contract: `Ok(n)` only after `recv_into`
-            // initialised exactly first `n` bytes of spare slice, `n <= len`.
-            unsafe { self.recv_staging.advance_mut(n) };
-            if n > 0 {
-                let inflated = self.inflate.feed(&self.recv_staging)?;
-                self.decode_buf.extend_from_slice(inflated);
+        {
+            if !self.staged() {
+                let capacity = self.cfg.decode_buf_capacity;
+                if land(transport, &mut self.recv_staging, capacity)? == 0 {
+                    return Ok(false);
+                }
+                self.last_recv = now;
             }
-            n
-        };
-        #[cfg(not(feature = "compressed"))]
-        let n = {
-            // reserve first: `split_to` shrinks spare, starved reserve would hand out empty slice
-            self.decode_buf.reserve(self.cfg.decode_buf_capacity);
-            let n = transport.recv_into(self.decode_buf.spare_capacity_mut())?;
-            // SAFETY: `StreamRecv` contract: `Ok(n)` only after `recv_into`
-            // initialised exactly first `n` bytes of spare slice, `n <= len`.
-            unsafe { self.decode_buf.advance_mut(n) };
-            n
-        };
-        if n > 0 {
-            self.last_recv = now;
+            let (consumed, inflated) = self.inflate.feed(&self.recv_staging)?;
+            self.decode_buf.extend_from_slice(inflated);
+            self.recv_staging.advance(consumed);
+            Ok(true)
         }
-        Ok(n)
+        #[cfg(not(feature = "compressed"))]
+        {
+            let capacity = self.cfg.decode_buf_capacity;
+            let read = land(transport, &mut self.decode_buf, capacity)? > 0;
+            if read {
+                self.last_recv = now;
+            }
+            Ok(read)
+        }
     }
 
     /// Split next whole packet off decode buffer, guarding `max_frame_size`
@@ -342,6 +348,21 @@ impl Session {
     }
 }
 
+/// One `recv_into` into `buf`'s spare capacity, returning bytes read.
+fn land<T: StreamRecv>(
+    transport: &mut T,
+    buf: &mut BytesMut,
+    capacity: usize,
+) -> Result<usize, SoupBinError> {
+    // reserve first: `split_to` shrinks spare, starved reserve would hand out empty slice
+    buf.reserve(capacity);
+    let n = transport.recv_into(buf.spare_capacity_mut())?;
+    // SAFETY: `StreamRecv` contract: `Ok(n)` only after `recv_into`
+    // initialised exactly first `n` bytes of spare slice, `n <= len`.
+    unsafe { buf.advance_mut(n) };
+    Ok(n)
+}
+
 /// Record one sequenced message yielded, from single yield site shared by
 /// every receive method, so one gated count never double counts.
 #[inline]
@@ -438,7 +459,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
                 }
                 None => {}
             }
-            if self.session.ingest(&mut self.transport, now)? == 0 {
+            if !self.session.ingest(&mut self.transport, now)? {
                 break;
             }
         }
@@ -464,7 +485,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
                 None => {}
             }
             // loop until drained: edge-triggered readiness never re-reports leftovers
-            if self.session.ingest(&mut self.transport, now)? == 0 {
+            if !self.session.ingest(&mut self.transport, now)? {
                 break;
             }
         }
