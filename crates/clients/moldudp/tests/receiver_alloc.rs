@@ -1,6 +1,7 @@
 //! Allocation proof for receiver's borrowed receive path: in-order messages
-//! decode without heap, and gap-buffered datagram promotes to `Arc` once per
-//! datagram, not once per message drained from it.
+//! decode without heap, however many one datagram carries, and gap-buffered
+//! datagram promotes to `Arc` once per datagram, not once per message drained
+//! from it.
 
 pub mod support;
 
@@ -35,6 +36,34 @@ fn poll_in_order_burst_is_allocation_free() {
         }
     });
     assert_eq!(info.count_total, 0, "in-order poll must not allocate");
+}
+
+#[test]
+fn poll_many_message_datagrams_is_allocation_free() {
+    // ITCH datagrams carry dozens of messages: past any small inline buffer
+    const PER_DATAGRAM: u64 = 20;
+    let datagram = |first: u64| {
+        let payloads: Vec<Vec<u8>> = (first..first + PER_DATAGRAM)
+            .map(|seq| format!("msg-{seq}").into_bytes())
+            .collect();
+        let messages: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
+        mold_multi_packet(&SESSION, first, &messages)
+    };
+    let mut rx = receiver(&[datagram(1), datagram(21), datagram(41)]);
+    let mut expect_frame = |seq: u64| match rx.poll() {
+        Ok(Some(MoldUdpOutcome::Frame(frame))) => assert_eq!(frame.sequence(), seq),
+        other => panic!("expected borrowed frame {seq}, got {other:?}"),
+    };
+
+    // first datagram outside measurement: steady state only
+    (1..=PER_DATAGRAM).for_each(&mut expect_frame);
+    let info = allocation_counter::measure(|| {
+        (PER_DATAGRAM + 1..=3 * PER_DATAGRAM).for_each(&mut expect_frame);
+    });
+    assert_eq!(
+        info.count_total, 0,
+        "decoding {PER_DATAGRAM}-message datagram must not allocate"
+    );
 }
 
 /// Gap tracking (`GapRequestHandler`'s `BTreeMap`) allocates too, apart from

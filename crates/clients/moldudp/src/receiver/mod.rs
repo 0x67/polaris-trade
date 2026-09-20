@@ -50,6 +50,7 @@ use crate::{
     frame::{Frame, Held, MessageView, OwnedFrame},
     gap::{GapRequest, GapRequestHandler},
     reassembly::SequenceReassembler,
+    wire::HEADER_LEN,
 };
 
 /// Ring capacity for both sequence reassembler and A/B arbiter window.
@@ -63,6 +64,10 @@ const MAX_INFLIGHT_BURST: NonZeroUsize = NonZeroUsize::new(64).unwrap();
 /// Smallest leg pool [`MoldUdpReceiver::from_legs`] accepts: reorder window
 /// plus one burst. Size each leg's receive pool at least this large.
 pub const MIN_LEG_POOL_CAPACITY: usize = RING_CAPACITY + MAX_INFLIGHT_BURST.get();
+
+/// Block scratch capacity: every block of 1500-byte MTU datagram, each at
+/// least its 2-byte length prefix. Bigger datagram grows it once.
+const BLOCKS_PER_DATAGRAM: usize = (1500 - HEADER_LEN) / 2;
 
 /// Record one message yielded to caller: gated thread-local count plus
 /// 1-in-8192 sampled merge, so flusher on another thread sees total without
@@ -203,6 +208,8 @@ struct Inner<T: DatagramRecv> {
     seq_anchored: bool,
     // preallocated, reused every burst
     recv_batch: FrameBatch<T::Frame>,
+    // (seq, offset, len) per block of datagram being decoded; reused, never shrunk
+    blocks: Vec<(u64, usize, usize)>,
 }
 
 impl<T: DatagramRecv, R> MoldUdpReceiver<T, R> {

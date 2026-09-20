@@ -6,8 +6,8 @@ use smallvec::SmallVec;
 use transport_core::{DatagramRecv, DatagramSend, FrameBatch};
 
 use super::{
-    Backing, Inner, MAX_INFLIGHT_BURST, MIN_LEG_POOL_CAPACITY, MoldUdpReceiver, NoRecovery,
-    RING_CAPACITY, Requester,
+    BLOCKS_PER_DATAGRAM, Backing, Inner, MAX_INFLIGHT_BURST, MIN_LEG_POOL_CAPACITY,
+    MoldUdpReceiver, NoRecovery, RING_CAPACITY, Requester,
 };
 use crate::{
     ab::AbArbiter, config::MoldUdpReceiverConfig, error::MoldUdpError, gap::GapRequestHandler,
@@ -72,6 +72,7 @@ impl<T: DatagramRecv> MoldUdpReceiver<T> {
                 inline_pending: 0,
                 seq_anchored: cfg.start_sequence.is_some(),
                 recv_batch: FrameBatch::with_capacity(MAX_INFLIGHT_BURST),
+                blocks: Vec::with_capacity(BLOCKS_PER_DATAGRAM),
             },
             recovery: NoRecovery,
         })

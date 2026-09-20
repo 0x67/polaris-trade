@@ -3,7 +3,6 @@
 
 use std::{cmp::Ordering, mem, sync::Arc, time::Instant};
 
-use smallvec::SmallVec;
 use transport_core::DatagramRecv;
 
 use super::{Backing, Inner, MoldUdpOutcome, ReadyItem, record_gap, record_message};
@@ -210,10 +209,10 @@ impl<T: DatagramRecv> Inner<T> {
         }
 
         // collect (seq, offset, len) first: iterator borrows datagram, which moves below
-        let mut blocks: SmallVec<[(u64, usize, usize); 8]> = SmallVec::new();
+        self.blocks.clear();
         for (seq, block) in (header.sequence..).zip(header.blocks(datagram.as_ref())) {
             let (offset, bytes) = block?;
-            blocks.push((seq, offset, bytes.len()));
+            self.blocks.push((seq, offset, bytes.len()));
         }
 
         // blocks are contiguous: only gap is jump to leading sequence, recorded
@@ -232,7 +231,7 @@ impl<T: DatagramRecv> Inner<T> {
 
         let mut backing = Backing::Owned(datagram);
         let mut inline = 0;
-        for (seq, offset, len) in blocks {
+        for &(seq, offset, len) in &self.blocks {
             if let Some(arbiter) = self.arbiter.as_mut() {
                 match arbiter.observe(stream_id, seq, Instant::now()) {
                     ArbiterVerdict::Duplicate | ArbiterVerdict::OutOfWindow => continue,
