@@ -61,7 +61,7 @@ Without `driver-dpdk` the build script does nothing. With it, `build.rs` require
 
 ## Tests
 
-`cargo nextest run -p transport_dpdk` runs the burst bookkeeping test on any OS. With `--features driver-dpdk` on Linux, `tests/real_dpdk.rs` checks that the test binary links and that a null mempool is rejected; its two ignored tests start a real EAL (`--no-huge`, no PCI, two `net_pcap` vdevs replaying pcap files written by the test) and check that payloads reach a `UdpDecap` consumer byte for byte, and that an exhausted mempool raises `no_buffer` and recovers after frames are dropped on another thread:
+`cargo nextest run -p transport_dpdk` runs the burst bookkeeping test on any OS. With `--features driver-dpdk` on Linux, `tests/real_dpdk.rs` checks that the test binary links and that a null mempool is rejected; its two ignored tests start a real EAL (`--no-huge`, no PCI, two `net_pcap` vdevs replaying pcap files written by the test) and check that payloads reach a `UdpDecap` consumer byte for byte, and that a burst is bounded by the caller's batch, then by free mbufs, and an exhausted mempool raises `no_buffer` and recovers after frames are dropped on another thread:
 
 ```bash
 cargo nextest run -p transport_dpdk --features driver-dpdk --run-ignored ignored-only

@@ -225,11 +225,22 @@ fn pcap_payloads_reach_consumer_through_decap_past_chained_mbuf() {
 fn exhausted_mempool_counts_no_buffer_and_recovers_after_cross_thread_drop() {
     let (port, mempool) = start_port(EXHAUST_VDEV, EXHAUST_POOL);
     let mut l2 = attach(port, mempool);
+    let mut pair = FrameBatch::<MbufFrame>::with_capacity(NonZeroUsize::new(2).unwrap());
     let mut out = FrameBatch::<MbufFrame>::with_capacity(NonZeroUsize::new(16).unwrap());
 
-    let held = l2.recv_burst(&mut out).unwrap();
-    assert_eq!(held, EXHAUST_POOL as usize, "burst bounded by free mbufs");
-    let held: Vec<MbufFrame> = out.drain().collect();
+    assert_eq!(
+        l2.recv_burst(&mut pair).unwrap(),
+        2,
+        "burst bounded by caller batch"
+    );
+    let mut held: Vec<MbufFrame> = pair.drain().collect();
+    // rest of pool arrives on next call
+    assert_eq!(
+        l2.recv_burst(&mut out).unwrap(),
+        2,
+        "burst bounded by free mbufs"
+    );
+    held.extend(out.drain());
     let full = PoolStats {
         capacity: EXHAUST_POOL as usize,
         in_use: EXHAUST_POOL as usize,
