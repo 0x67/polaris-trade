@@ -1,7 +1,8 @@
 //! TCP cases beyond conformance suite (`tests/conformance.rs` covers empty
 //! read, ordered bytes, `PeerClosed`, resumed `try_send`, 8 MiB `send_all`):
 //! config rejected before connecting, connect refusal and timeout mapping, and
-//! partial write under tiny `SO_SNDBUF` resumed on `ReadySet` writable readiness.
+//! partial write under bounded socket buffers resumed on `ReadySet` writable
+//! readiness.
 
 #[cfg(any(feature = "mio", feature = "tokio"))]
 use std::net::{SocketAddr, TcpListener};
@@ -185,6 +186,7 @@ fn mio_partial_write_resumes_on_writable_readiness() {
         time::{Duration, Instant},
     };
 
+    use socket2::SockRef;
     use transport_core::StreamTrySend;
     use transport_socket::mio::{MioTcp, ReadySet, ReadyToken};
 
@@ -193,6 +195,13 @@ fn mio_partial_write_resumes_on_writable_readiness() {
     const TOKEN: ReadyToken = ReadyToken(0);
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    // small send buffer alone does not stall a sender: Windows auto-tunes the
+    // receive window into the megabytes. Accepted socket inherits listener's
+    // buffer, and setting it is what pins the window down. 64 KiB (Linux
+    // doubles it) stays far under `LEN` yet drains it in few round trips.
+    SockRef::from(&listener)
+        .set_recv_buffer_size(64 * 1024)
+        .expect("listener recv buffer");
     let mut cfg = TcpConfig::new(listener.local_addr().expect("listener addr"));
     cfg.send_buf = NonZeroU32::new(4096);
     // sub-MSS segments under Nagle wait on delayed ACKs: tens of ms each
