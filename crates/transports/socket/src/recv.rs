@@ -11,7 +11,9 @@ use std::{
     slice,
 };
 
-use socket2::{MaybeUninitSlice, SockAddr, Socket};
+#[cfg(not(target_os = "linux"))]
+use socket2::MaybeUninitSlice;
+use socket2::{SockAddr, Socket};
 #[cfg(feature = "observability")]
 use transport_core::telemetry::DropReason;
 use transport_core::{
@@ -135,11 +137,28 @@ fn exhausted(
     }
 }
 
-/// One datagram into `buf`: byte count, whether kernel cut it, sender.
+/// One datagram into `buf`: bytes stored, whether kernel cut it, sender.
 ///
-/// `recvmsg` path, not `recvfrom`: only it reports datagram longer than `buf`
-/// on every OS (Unix `MSG_TRUNC`, Winsock `WSAEMSGSIZE`). Plain `recv_from`
-/// delivers cut payload unsignalled on Unix.
+/// `recvfrom` with `MSG_TRUNC` returns whole datagram length even when it did
+/// not fit, so length past `buf` is the cut; cheaper than `recvmsg` per call.
+/// Kernel still writes at most `buf.len()` bytes, so returned length is
+/// clamped before it reaches slab.
+#[cfg(target_os = "linux")]
+pub(crate) fn datagram(
+    sock: &Socket,
+    buf: &mut [MaybeUninit<u8>],
+) -> io::Result<(usize, bool, SockAddr)> {
+    let cap = buf.len();
+    let (len, from) = sock.recv_from_with_flags(buf, libc::MSG_TRUNC)?;
+    Ok((len.min(cap), len > cap, from))
+}
+
+/// One datagram into `buf`: bytes stored, whether kernel cut it, sender.
+///
+/// `recvmsg` path off Linux: `MSG_TRUNC` on receive is Linux only, BSD
+/// `recv` has no equivalent, and plain `recv_from` delivers cut payload
+/// unsignalled there. socket2 folds Winsock `WSAEMSGSIZE` into same flags.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn datagram(
     sock: &Socket,
     buf: &mut [MaybeUninit<u8>],

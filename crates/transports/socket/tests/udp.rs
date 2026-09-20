@@ -95,7 +95,8 @@ fn frame_carries_sender_address() {
     assert_eq!(frame.peer(), sender.local_addr().expect("sender addr"));
 }
 
-// one slab: cut datagram must hand its slab back for next datagram to land
+// one slab: cut datagram must hand its slab back for next datagram to land.
+// Exactly-slab-sized datagram rides along: it fills buffer without being cut
 #[test]
 fn datagram_longer_than_slab_is_dropped_not_cut() {
     let mut cfg = UdpConfig::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
@@ -105,12 +106,13 @@ fn datagram_longer_than_slab_is_dropped_not_cut() {
     let to = rx.local_addr().expect("local addr");
     let tx = support::sender();
     tx.send_to(&[0x7f; 200], to).expect("send oversized");
+    tx.send_to(&[0x5a; 64], to).expect("send exact fit");
     tx.send_to(b"fits", to).expect("send");
 
     let mut batch = FrameBatch::with_capacity(NonZeroUsize::new(4).unwrap());
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut got: Vec<Vec<u8>> = Vec::new();
-    while got.is_empty() {
+    while got.len() < 2 {
         assert!(Instant::now() < deadline, "no datagram arrived");
         match rx.recv_burst(&mut batch) {
             Ok(0) => thread::yield_now(),
@@ -118,7 +120,11 @@ fn datagram_longer_than_slab_is_dropped_not_cut() {
             Err(e) => panic!("receive loop ended: {e}"),
         }
     }
-    assert_eq!(got, [b"fits".to_vec()], "cut datagram reached caller");
+    assert_eq!(
+        got,
+        [vec![0x5a; 64], b"fits".to_vec()],
+        "cut datagram reached caller"
+    );
 }
 
 // same drop the test above proves, seen through the metrics seam
