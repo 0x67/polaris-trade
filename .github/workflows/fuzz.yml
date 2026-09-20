@@ -10,12 +10,18 @@ on:
     paths:
       - 'crates/clients/moldudp/src/**'
       - 'crates/clients/soupbintcp/src/**'
+      # dependency versions reach the fuzz build too
+      - 'crates/clients/*/Cargo.toml'
+      - 'Cargo.toml'
       - 'fuzz/**'
   push:
     branches: [main]
     paths:
       - 'crates/clients/moldudp/src/**'
       - 'crates/clients/soupbintcp/src/**'
+      # dependency versions reach the fuzz build too
+      - 'crates/clients/*/Cargo.toml'
+      - 'Cargo.toml'
       - 'fuzz/**'
   workflow_dispatch:
 
