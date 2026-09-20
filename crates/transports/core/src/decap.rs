@@ -58,6 +58,10 @@ impl<S: L2Recv> UdpDecap<S> {
     ///
     /// `burst` bounds every inner reap and sizes both internal queues,
     /// allocated here once.
+    ///
+    /// # Panics
+    ///
+    /// When `burst` frames exceed `isize::MAX` bytes, as [`Vec::with_capacity`] does.
     pub fn new(inner: S, dst_port: u16, dst_ip: Option<Ipv4Addr>, burst: NonZeroUsize) -> Self {
         Self {
             inner,

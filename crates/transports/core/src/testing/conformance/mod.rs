@@ -4,9 +4,8 @@
 //! [`DatagramHarness`]; [`run_stream`] and [`run_stream_async`] drive a stream
 //! against a plain blocking [`TcpStream`](std::net::TcpStream) peer. Each case
 //! builds a fresh transport (reclaim continues on exhaustion's), so one failure
-//! never leaks into an unrelated case.
-//! Violations panic naming case and observation. Sync waits give up after 5 s;
-//! async waits rely on caller timeout.
+//! never leaks into an unrelated case. Violations panic naming case and
+//! observation. Sync waits give up after 5 s; async waits rely on caller timeout.
 //!
 //! # Datagram contract
 //!

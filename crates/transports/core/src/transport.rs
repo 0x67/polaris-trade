@@ -155,6 +155,10 @@ pub struct FrameBatch<F> {
 
 impl<F> FrameBatch<F> {
     /// Allocate room for exactly `cap` frames.
+    ///
+    /// # Panics
+    ///
+    /// When `cap` frames exceed `isize::MAX` bytes, as [`Vec::with_capacity`] does.
     pub fn with_capacity(cap: NonZeroUsize) -> Self {
         Self {
             frames: Vec::with_capacity(cap.get()),
