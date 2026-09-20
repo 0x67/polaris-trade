@@ -145,7 +145,16 @@ impl<T: DatagramRecv> Inner<T> {
         let Some(arbiter) = self.arbiter.as_mut() else {
             return;
         };
-        for seq in arbiter.confirmed_gaps(Instant::now()) {
+        let confirmed = arbiter.confirmed_gaps(Instant::now());
+        if let (Some(&first), Some(&last)) = (confirmed.first(), confirmed.last()) {
+            tracing::warn!(
+                first,
+                last,
+                count = confirmed.len(),
+                "sequence gap confirmed on every leg; queueing re-request"
+            );
+        }
+        for seq in confirmed {
             self.gap_handler.record_gap(seq);
             self.ready.push_back(ReadyItem::Gap);
             record_gap();
@@ -226,6 +235,11 @@ impl<T: DatagramRecv> Inner<T> {
             } else {
                 self.gap_handler
                     .record_missing_range(unseen, header.sequence);
+                tracing::warn!(
+                    expected = unseen,
+                    received = header.sequence,
+                    "sequence gap detected; queueing re-request"
+                );
                 self.ready.push_back(ReadyItem::Gap);
                 record_gap();
             }

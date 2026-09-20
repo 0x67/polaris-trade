@@ -1,12 +1,15 @@
-//! Gap events go through `tracing`: one warn per discontinuity at detection,
-//! never per packet, and nothing for in-order feed.
+//! Gap events go through `tracing`: one warn per discontinuity at detection
+//! (data packet, heartbeat tail, or A/B confirmation), never per packet, and
+//! nothing for in-order feed.
 
 pub mod support;
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use client_moldudp::{MoldUdpReceiver, MoldUdpReceiverConfig};
-use smallvec::smallvec;
+use client_moldudp::{MoldUdpError, MoldUdpReceiver, MoldUdpReceiverConfig};
 use support::{mold_heartbeat, mold_packet};
 use tracing::{
     Event, Level, Metadata, Subscriber,
@@ -68,21 +71,42 @@ impl Subscriber for CapturingSubscriber {
     fn exit(&self, _span: &span::Id) {}
 }
 
-/// Drain `packets` through one mock leg, recording events emitted meanwhile.
-fn captured(packets: &[Vec<u8>], frames: usize) -> Vec<CapturedEvent> {
+/// Poll mock legs (one per packet list) until idle, recording events emitted
+/// meanwhile.
+fn captured(cfg: &MoldUdpReceiverConfig, legs: &[&[Vec<u8>]]) -> Vec<CapturedEvent> {
     let subscriber = CapturingSubscriber::default();
     let events = Arc::clone(&subscriber.events);
     tracing::subscriber::with_default(subscriber, || {
-        let mut leg = support::mock_leg();
-        for p in packets {
-            leg.driver_mut().inject(p);
+        let legs = legs
+            .iter()
+            .map(|packets| {
+                let mut leg = support::mock_leg();
+                for p in *packets {
+                    leg.driver_mut().inject(p);
+                }
+                leg
+            })
+            .collect();
+        let mut rx = MoldUdpReceiver::from_legs(cfg, legs).expect("receiver");
+        loop {
+            match rx.poll() {
+                Ok(None) => break,
+                Ok(Some(_)) | Err(MoldUdpError::GapDetected) => {}
+                Err(e) => panic!("poll: {e}"),
+            }
         }
-        let mut rx = MoldUdpReceiver::from_legs(&MoldUdpReceiverConfig::default(), smallvec![leg])
-            .expect("receiver");
-        support::drain(&mut rx, frames);
-        while rx.poll().is_ok_and(|outcome| outcome.is_some()) {}
     });
     events.lock().unwrap().clone()
+}
+
+fn assert_one_warn(events: &[CapturedEvent], message: &str) {
+    assert_eq!(events.len(), 1, "exactly one gap event, got {events:?}");
+    assert_eq!(events[0].level, Level::WARN);
+    assert!(
+        events[0].message.contains(message),
+        "unexpected message: {}",
+        events[0].message
+    );
 }
 
 #[test]
@@ -90,25 +114,38 @@ fn in_order_sequence_emits_no_gap_event() {
     let packets: Vec<_> = (1u64..=3)
         .map(|seq| mold_packet(&SESSION, seq, format!("m{seq}").as_bytes()))
         .collect();
-    let events = captured(&packets, 3);
+    let events = captured(&MoldUdpReceiverConfig::default(), &[&packets]);
     assert!(events.is_empty(), "in-order feed emitted {events:?}");
 }
 
 #[test]
 fn tail_gap_discontinuity_emits_exactly_one_warn() {
     // heartbeat saying next is 4 after seq 1 is detection transition; fires once
-    let events = captured(
-        &[
-            mold_packet(&SESSION, 1, b"one"),
-            mold_heartbeat(&SESSION, 4),
-        ],
-        1,
-    );
-    assert_eq!(events.len(), 1, "exactly one gap event, got {events:?}");
-    assert_eq!(events[0].level, Level::WARN);
-    assert!(
-        events[0].message.contains("sequence gap detected"),
-        "unexpected message: {}",
-        events[0].message
-    );
+    let packets = [
+        mold_packet(&SESSION, 1, b"one"),
+        mold_heartbeat(&SESSION, 4),
+    ];
+    let events = captured(&MoldUdpReceiverConfig::default(), &[&packets]);
+    assert_one_warn(&events, "sequence gap detected");
+}
+
+#[test]
+fn data_packet_gap_emits_exactly_one_warn() {
+    // 3 ahead of expected 2 opens gap; late 2 fills it quietly
+    let packets = [1, 3, 2].map(|seq| mold_packet(&SESSION, seq, b"m"));
+    let events = captured(&MoldUdpReceiverConfig::default(), &[&packets]);
+    assert_one_warn(&events, "sequence gap detected");
+}
+
+#[test]
+fn multi_leg_confirmed_gap_emits_exactly_one_warn() {
+    // both legs lose 2; zero confirm window confirms it on leg A's 3
+    let cfg = MoldUdpReceiverConfig {
+        gap_confirm_window: Duration::ZERO,
+        ..MoldUdpReceiverConfig::default()
+    };
+    let leg_a = [1, 3].map(|seq| mold_packet(&SESSION, seq, b"m"));
+    let leg_b = [mold_packet(&SESSION, 1, b"m")];
+    let events = captured(&cfg, &[&leg_a, &leg_b]);
+    assert_one_warn(&events, "sequence gap confirmed");
 }

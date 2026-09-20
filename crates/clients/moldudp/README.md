@@ -78,7 +78,7 @@ Tests run over loopback sockets and the in-process `transport_core` mock driver;
 
 ## Logging
 
-This crate emits [`tracing`](https://docs.rs/tracing) events at state transitions only (gap detected and re-request send failed at `warn`, re-requests sent at `debug`), never per message. Install any subscriber to see them; filter with `RUST_LOG=client_moldudp=debug`.
+This crate emits [`tracing`](https://docs.rs/tracing) events at state transitions only (gap detected or confirmed on every leg and re-request send failed at `warn`, re-requests sent at `debug`), never per message. Install any subscriber to see them; filter with `RUST_LOG=client_moldudp=debug`.
 
 ## License
 
