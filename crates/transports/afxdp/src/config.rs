@@ -58,6 +58,10 @@ pub struct AfxdpConfig {
     pub headroom: u32,
     /// Bind zero-copy (`XDP_ZEROCOPY`, driver support needed, unverified on real
     /// NICs) instead of copy mode. Default off.
+    ///
+    /// WARNING: NIC may keep writing UMEM after socket closes, until kernel's
+    /// deferred teardown ends, while drop frees region: a late write can land
+    /// in memory the allocator handed to something else. Copy mode is safe.
     pub zero_copy: bool,
     /// Program steering queue to socket. Default `Builtin { mode: Skb }`.
     pub redirect: XdpRedirect,
