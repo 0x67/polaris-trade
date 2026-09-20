@@ -105,6 +105,7 @@ impl Driver for PmdDriver {
 
     // PMD refills its ring from mempool itself, so no recycle step; DPDK never
     // shows pending data without buffer, so no `Exhausted` (see `rx_nombuf`)
+    #[inline]
     fn reap(&mut self, out: &mut FrameBatch<MbufFrame>) -> Result<Reap, TransportError> {
         let want = u16::try_from(out.spare()).map_or(self.burst, |spare| spare.min(self.burst));
         loop {
