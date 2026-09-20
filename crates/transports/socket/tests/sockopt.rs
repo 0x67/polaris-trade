@@ -1,5 +1,6 @@
 //! Socket options read back from kernel through socket2 getters, and options
-//! platform cannot apply rejected as `InvalidConfig` before any syscall.
+//! platform cannot apply or values above OS limit rejected as `InvalidConfig`
+//! before any syscall.
 //!
 //! Kernels adjust buffer sizes (Linux doubles, macOS TCP adds loopback room),
 //! so readback must be at least requested and differ from what same socket
@@ -16,6 +17,8 @@ use transport_socket::{UdpConfig, UdpSocket};
 
 // 96 KiB: below Linux `rmem_max` default
 const BUF: NonZeroU32 = NonZeroU32::new(96 * 1024).unwrap();
+// socket2 hands option values to setsockopt as C `int`
+const ABOVE_C_INT: NonZeroU32 = NonZeroU32::new(i32::MAX.unsigned_abs() + 1).unwrap();
 
 fn loopback() -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
@@ -107,6 +110,43 @@ fn reuse_port_on_windows_is_invalid_config() {
             ..
         })
     ));
+}
+
+fn assert_invalid_config(result: Result<(), TransportError>, want: &str) {
+    match result {
+        Err(TransportError::InvalidConfig { field, .. }) => assert_eq!(field, want),
+        other => panic!("got {other:?}, want InvalidConfig on {want}"),
+    }
+}
+
+#[test]
+fn udp_buffer_above_c_int_is_invalid_config() {
+    let mut recv = UdpConfig::new(loopback());
+    recv.recv_buf = Some(ABOVE_C_INT);
+    let mut send = UdpConfig::new(loopback());
+    send.send_buf = Some(ABOVE_C_INT);
+    for (cfg, want) in [(recv, "recv_buf"), (send, "send_buf")] {
+        assert_invalid_config(UdpSocket::bind(&cfg).map(drop), want);
+    }
+}
+
+#[cfg(feature = "mio")]
+#[test]
+fn mio_values_above_limit_are_invalid_config() {
+    use std::num::NonZeroUsize;
+
+    use transport_socket::{
+        TcpConfig,
+        mio::{MioTcp, ReadySet},
+    };
+
+    // valid remote: only `send_buf` may reject
+    let listener = std::net::TcpListener::bind(loopback()).expect("bind listener");
+    let mut tcp = TcpConfig::new(listener.local_addr().expect("addr"));
+    tcp.send_buf = Some(ABOVE_C_INT);
+    assert_invalid_config(MioTcp::connect(&tcp).map(drop), "send_buf");
+    let events = NonZeroUsize::new(65_537).unwrap();
+    assert_invalid_config(ReadySet::new(events).map(drop), "events");
 }
 
 // same config through either TCP type yields same kernel options

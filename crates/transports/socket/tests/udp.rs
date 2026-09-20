@@ -53,24 +53,23 @@ fn send_to_flood_never_blocks_and_fails_only_with_would_block() {
     let (done, result) = mpsc::channel();
     thread::spawn(move || {
         let payload = [0x5a; 1024];
-        let mut would_block = 0_usize;
         for _ in 0..FLOOD {
             match tx.send_to(&payload, to) {
                 Ok(_) => {}
                 Err(TransportError::Io {
                     stage: "send_to",
                     error,
-                }) if error.kind() == io::ErrorKind::WouldBlock => would_block += 1,
+                }) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(other) => {
                     let _ = done.send(Err(other));
                     return;
                 }
             }
         }
-        let _ = done.send(Ok(would_block));
+        let _ = done.send(Ok(()));
     });
     match result.recv_timeout(DEADLINE) {
-        Ok(Ok(_would_block)) => {}
+        Ok(Ok(())) => {}
         Ok(Err(err)) => panic!("send_to failed with non-WouldBlock error: {err}"),
         Err(e) => panic!("{FLOOD} sends not done within {DEADLINE:?} ({e}): send_to blocked"),
     }

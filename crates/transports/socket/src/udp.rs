@@ -172,3 +172,37 @@ pub(crate) fn join(
     }
     .map_err(io_error("join_multicast"))
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::io;
+
+    use transport_core::TransportError;
+
+    use super::sent;
+
+    fn send_to_error(errno: i32) -> io::Error {
+        match sent(Err(io::Error::from_raw_os_error(errno))) {
+            Err(TransportError::Io {
+                stage: "send_to",
+                error,
+            }) => error,
+            other => panic!("errno {errno}: got {other:?}, want send_to Io"),
+        }
+    }
+
+    #[test]
+    fn enobufs_is_would_block_keeping_os_error() {
+        let error = send_to_error(libc::ENOBUFS);
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock, "{error}");
+        let inner = error.get_ref().and_then(|e| e.downcast_ref::<io::Error>());
+        assert_eq!(inner.and_then(io::Error::raw_os_error), Some(libc::ENOBUFS));
+    }
+
+    #[test]
+    fn eagain_passes_through_unwrapped() {
+        let error = send_to_error(libc::EAGAIN);
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock, "{error}");
+        assert_eq!(error.raw_os_error(), Some(libc::EAGAIN));
+    }
+}

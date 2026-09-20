@@ -62,8 +62,10 @@ Integration tests prove each type's contract on loopback only, on every OS the c
 
 - `tests/conformance.rs` runs the core suite on all five types: `udp_socket_meets_datagram_contract`, `mio_udp_meets_datagram_contract`, `async_udp_meets_datagram_contract`, `mio_tcp_meets_stream_contract`, `tokio_tcp_meets_stream_contract`, `tokio_tcp_meets_async_stream_contract`.
 - `tests/ready_mio.rs`: data queued before registration, idle leg beside active one, re-report after drain, wake while blocked, TCP readable. `tests/ready_tokio.rs`: no stale ready after drain, UDP and TCP.
-- `tests/tcp.rs`: config rejection before connect, refused connect as `Connect`, partial write resumed on writable readiness. `tests/sockopt.rs` reads options back from the kernel and checks platform-limited ones fail loudly.
+- `tests/tcp.rs`: config rejection before connect, refused connect as `Connect`, partial write resumed on writable readiness. On Linux and macOS a connect to a listener with a full accept queue fails `Connect` of kind `TimedOut` within bound (Winsock refuses instead).
+- `tests/sockopt.rs` reads options back from the kernel and checks platform-limited ones fail loudly; buffer sizes above `i32::MAX` and `ReadySet` above 65536 events are `InvalidConfig` naming the field.
 - `tests/udp.rs`: `Bind` carries `AddrInUse` and the OS text, a `send_to` flood only ever fails with `WouldBlock`, frames carry the sender, a second join of one group is refused by the kernel (proving membership), and an interface of the other family is `InvalidConfig`.
+- In-crate: `recv::burst` with the pool run dry after a push keeps the frame, returns no error and delivers the queued datagram next call; `send_to` maps ENOBUFS to `WouldBlock` keeping the OS error and passes EAGAIN through unwrapped.
 - `tests/zero_alloc.rs`: steady-state receive allocates nothing. `tests/windows.rs`: `WSAECONNRESET` and `WSAEMSGSIZE` never end the receive loop, and a large queued datagram makes `AsyncUdp` ready.
 
 `benches/recv.rs` times the drain of a pre-filled socket at burst sizes 1 to 64, with the sends outside the timed region, and an idle spin.

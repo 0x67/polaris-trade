@@ -117,3 +117,33 @@ fn empty_pool_on_idle_socket_is_idle_not_exhausted() {
     );
     assert!(matches!(idle, Ok(0)), "idle socket, empty pool: {idle:?}");
 }
+
+#[test]
+fn pool_running_dry_after_push_keeps_frame_and_queued_datagram() {
+    let pool = VecPool::new(NonZeroUsize::MIN, NonZeroUsize::new(64).unwrap()).unwrap();
+    let mut out = FrameBatch::with_capacity(NonZeroUsize::new(2).unwrap());
+    let mut deferred = None;
+    let mut steps = VecDeque::from([Ok(&b"one"[..]), Ok(&b"two"[..])]);
+    // second datagram stays queued throughout, so peek reports it
+    let mut call = |out: &mut FrameBatch<UdpFrame>| {
+        burst(
+            "test",
+            &pool,
+            out,
+            &mut deferred,
+            script(&mut steps),
+            || Ok(()),
+        )
+    };
+
+    let first = call(&mut out);
+    assert!(matches!(first, Ok(1)), "frame kept, no error: {first:?}");
+    let got: Vec<_> = out.drain().map(|f| f.as_ref().to_vec()).collect();
+    assert_eq!(got, [b"one".to_vec()]);
+
+    // dropped frame freed only slab: queued datagram lands in it
+    let second = call(&mut out);
+    assert!(matches!(second, Ok(1)), "{second:?}");
+    let got: Vec<_> = out.drain().map(|f| f.as_ref().to_vec()).collect();
+    assert_eq!(got, [b"two".to_vec()]);
+}

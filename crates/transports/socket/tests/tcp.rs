@@ -1,7 +1,7 @@
 //! TCP cases beyond conformance suite (`tests/conformance.rs` covers empty
 //! read, ordered bytes, `PeerClosed`, resumed `try_send`, 8 MiB `send_all`):
-//! config rejected before connecting, connect failure mapping, and partial
-//! write under tiny `SO_SNDBUF` resumed on `ReadySet` writable readiness.
+//! config rejected before connecting, connect refusal and timeout mapping, and
+//! partial write under tiny `SO_SNDBUF` resumed on `ReadySet` writable readiness.
 
 #[cfg(any(feature = "mio", feature = "tokio"))]
 use std::net::{SocketAddr, TcpListener};
@@ -63,6 +63,59 @@ fn assert_refused_is_connect_error(connect: impl Fn(&TcpConfig) -> Result<(), Tr
     }
 }
 
+// full accept queue drops next SYN, so handshake can only time out; Winsock
+// `listen` refuses on full queue (WSAECONNREFUSED), so no timeout there
+#[cfg(all(
+    any(feature = "mio", feature = "tokio"),
+    any(target_os = "linux", target_os = "macos")
+))]
+fn assert_timeout_is_connect_timed_out(connect: impl Fn(&TcpConfig) -> Result<(), TransportError>) {
+    use std::{
+        io,
+        time::{Duration, Instant},
+    };
+
+    use socket2::{Domain, Socket, Type};
+
+    const TIMEOUT: Duration = Duration::from_millis(200);
+    let socket = || Socket::new(Domain::IPV4, Type::STREAM, None).expect("socket");
+    let listener = socket();
+    listener
+        .bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into())
+        .expect("bind listener");
+    // backlog 1, not 0: macOS reads 0 as `somaxconn` (128 fillers)
+    listener.listen(1).expect("listen");
+    let remote = listener
+        .local_addr()
+        .ok()
+        .and_then(|a| a.as_socket())
+        .expect("listener addr");
+    // never accepted: fill queue until one more handshake times out
+    let mut fillers = Vec::new();
+    loop {
+        let filler = socket();
+        match filler.connect_timeout(&remote.into(), TIMEOUT) {
+            Ok(()) => fillers.push(filler),
+            Err(e) if e.kind() == io::ErrorKind::TimedOut => break,
+            Err(e) => panic!("filler {}: {e}", fillers.len()),
+        }
+        assert!(fillers.len() < 16, "accept queue never filled");
+    }
+
+    let mut cfg = TcpConfig::new(remote);
+    cfg.connect_timeout = TIMEOUT;
+    let start = Instant::now();
+    match connect(&cfg) {
+        Err(TransportError::Connect { addr, error }) => {
+            assert_eq!(addr, remote);
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+        }
+        other => panic!("got {other:?}, want Connect timed out"),
+    }
+    let took = start.elapsed();
+    assert!(took < Duration::from_secs(2), "timeout took {took:?}");
+}
+
 #[cfg(feature = "mio")]
 #[test]
 fn mio_connect_rejects_invalid_config_before_connecting() {
@@ -103,6 +156,23 @@ fn tokio_connect_refused_is_connect_error() {
 
     let rt = runtime();
     assert_refused_is_connect_error(|cfg| rt.block_on(TcpStream::connect(cfg)).map(drop));
+}
+
+#[cfg(all(feature = "mio", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn mio_connect_timeout_is_connect_timed_out() {
+    use transport_socket::mio::MioTcp;
+
+    assert_timeout_is_connect_timed_out(|cfg| MioTcp::connect(cfg).map(drop));
+}
+
+#[cfg(all(feature = "tokio", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn tokio_connect_timeout_is_connect_timed_out() {
+    use transport_socket::tokio::TcpStream;
+
+    let rt = runtime();
+    assert_timeout_is_connect_timed_out(|cfg| rt.block_on(TcpStream::connect(cfg)).map(drop));
 }
 
 #[cfg(feature = "mio")]
