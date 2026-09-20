@@ -2,7 +2,7 @@
 //! SoupBinTCP framing fuzz: same byte stream fed contiguous vs chunked through
 //! `wire::parse_packet` accumulation must yield identical frames, identical
 //! consumed totals, identical terminal error. Split points derive from input
-//! bytes, no RNG. Mirrors `client.rs::take_one_packet` accumulation contract.
+//! bytes, no RNG. Mirrors `session.rs::Session::take_packet` accumulation contract.
 
 use client_soupbintcp::wire::{PacketType, parse_packet};
 use libfuzzer_sys::fuzz_target;

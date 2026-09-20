@@ -3,7 +3,7 @@
 //!
 //! Receive lands bytes straight into decode buffer's spare capacity through
 //! [`StreamRecv::recv_into`], so uncompressed stream has one copy; framing
-//! (`split_to`) stays refcount-free after. Outbound bytes queue in one buffer
+//! (`split_to`) adds no copy after. Outbound bytes queue in one buffer
 //! whose front is resume point of partial write, so both drivers share it and
 //! wire order holds.
 
