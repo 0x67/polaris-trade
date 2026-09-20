@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MoldUdpReceiverConfig {
-    /// Re-request rate cap per gap start sequence. Default 4.
+    /// Re-request rate cap: any one missing range is requested at most this
+    /// many times per second. Default 4.
     pub max_rerequests_per_gap_per_sec: u32,
     /// Multi-leg only: how long sequence must stay unseen on every leg before
     /// it counts as gap. Default 5 ms.

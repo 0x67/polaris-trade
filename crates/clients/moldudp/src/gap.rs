@@ -2,11 +2,11 @@
 //!
 //! `GapRequestHandler` records missing sequence ranges as they're detected and
 //! clears them as messages arrive. `GapRequestEmitter` turns pending gaps into
-//! `MoldUDP64` Request Packets, capped per gap so stuck gap can't flood
-//! re-request server.
+//! `MoldUDP64` Request Packets, rate-limited by coverage so stuck gap can't
+//! flood re-request server.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     io,
     net::SocketAddr,
     time::{Duration, Instant},
@@ -98,30 +98,34 @@ impl GapRequestHandler {
     }
 }
 
-/// Sends `MoldUDP64` Request Packets for pending gaps, rate-limited per gap
-/// start sequence so gap that never fills can't flood re-request server.
+/// Sends `MoldUDP64` Request Packets for pending gaps, rate-limited by
+/// coverage: gap inside range requested within last interval is skipped, so
+/// gap that never fills can't flood re-request server, and gap shrinking from
+/// its head as retransmissions land is not re-requested.
 #[derive(Debug)]
 pub struct GapRequestEmitter {
     /// Re-request server every packet goes to.
     pub server_addr: SocketAddr,
-    last_sent: HashMap<u64, Instant>,
+    // `[start, end)` requested within last interval, with send time
+    requested: Vec<(u64, u64, Instant)>,
     max_per_gap_per_sec: u32,
 }
 
 impl GapRequestEmitter {
-    /// Emitter sending to `server_addr`, at most `max_per_gap_per_sec` (min 1)
-    /// requests per gap start sequence per second.
+    /// Emitter sending to `server_addr`, requesting any one missing range at
+    /// most `max_per_gap_per_sec` (min 1) times per second.
     pub fn new(server_addr: SocketAddr, max_per_gap_per_sec: u32) -> Self {
         Self {
             server_addr,
-            last_sent: HashMap::new(),
+            requested: Vec::new(),
             max_per_gap_per_sec: max_per_gap_per_sec.max(1),
         }
     }
 
-    /// Send Request Packet from `sock` for each gap not currently rate-limited,
-    /// returning how many were sent. Full socket buffer stops this round without
-    /// marking rest sent, so next call retries them.
+    /// Send Request Packet from `sock` for each gap not covered by range
+    /// requested within last `1 / max_per_gap_per_sec` s, returning how many
+    /// were sent. Full socket buffer stops this round without marking rest
+    /// requested, so next call retries them.
     ///
     /// # Errors
     ///
@@ -134,13 +138,17 @@ impl GapRequestEmitter {
     ) -> Result<usize, MoldUdpError> {
         let interval = Duration::from_secs(1) / self.max_per_gap_per_sec;
         let now = Instant::now();
+        // expired ranges limit nothing; pruning keeps list bounded
+        self.requested
+            .retain(|&(_, _, at)| now.duration_since(at) < interval);
         let mut sent = 0usize;
         for gap in gaps {
-            let allowed = self
-                .last_sent
-                .get(&gap.start_seq)
-                .is_none_or(|&last| now.duration_since(last) >= interval);
-            if !allowed {
+            let end = gap.start_seq + u64::from(gap.count);
+            let covered = self
+                .requested
+                .iter()
+                .any(|&(start, stop, _)| start <= gap.start_seq && end <= stop);
+            if covered {
                 continue;
             }
             let packet = encode_request_packet(session, gap.start_seq, gap.count);
@@ -153,7 +161,7 @@ impl GapRequestEmitter {
                 }
                 Err(error) => return Err(error.into()),
             }
-            self.last_sent.insert(gap.start_seq, now);
+            self.requested.push((gap.start_seq, end, now));
             sent += 1;
         }
         Ok(sent)

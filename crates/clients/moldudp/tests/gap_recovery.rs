@@ -1,7 +1,8 @@
 //! Gap filled end to end: real UDP re-request server answers each request by
 //! sending missing packets back to request's source, as `MoldUDP64` servers do.
 //! Runs over socket legs and bypass-typed legs, both with `UdpSocket` requester,
-//! so requester frame type never matches mock leg's.
+//! so requester frame type never matches mock leg's. Retransmissions filling
+//! gap from its head must not trigger another request.
 
 pub mod support;
 
@@ -42,9 +43,12 @@ impl Server {
         let handle = thread::spawn(move || {
             let mut requests = Vec::new();
             let mut buf = [0u8; 64];
-            while !stopped.load(Ordering::Relaxed) {
-                let Ok((n, src)) = sock.recv_from(&mut buf) else {
-                    continue;
+            loop {
+                let (n, src) = match sock.recv_from(&mut buf) {
+                    Ok(got) => got,
+                    // stop only on empty socket, so no request sent before stop is missed
+                    Err(_) if stopped.load(Ordering::Relaxed) => break,
+                    Err(_) => continue,
                 };
                 assert_eq!(n, 20, "request packet is 20 bytes");
                 assert_eq!(buf[..10], SESSION, "request carries session");
@@ -70,6 +74,8 @@ impl Server {
 
 /// Leg receives 1 and 4; server holds 2 and 3. Requester has one slab, so
 /// second retransmission lands only if first slab went back at once.
+/// Server answers one request for `[2, 4)` with 2 then 3: 2 shrinks gap to
+/// `[3, 4)`, which that request already covers, so none follows.
 fn assert_gap_recovered<T: DatagramRecv>(mut leg: T, deliver: impl FnOnce(&mut T, &[Vec<u8>])) {
     let packets: Vec<Vec<u8>> = (1..=4)
         .map(|seq| support::mold_packet(&SESSION, seq, format!("m{seq}").as_bytes()))
@@ -81,7 +87,12 @@ fn assert_gap_recovered<T: DatagramRecv>(mut leg: T, deliver: impl FnOnce(&mut T
     ]));
     let requester = support::udp_socket(NonZeroUsize::MIN);
 
-    let mut rx = MoldUdpReceiver::from_legs(&MoldUdpReceiverConfig::default(), smallvec![leg])
+    // 1 s rate-limit interval: whole fill lands inside one, no legit retry
+    let cfg = MoldUdpReceiverConfig {
+        max_rerequests_per_gap_per_sec: 1,
+        ..MoldUdpReceiverConfig::default()
+    };
+    let mut rx = MoldUdpReceiver::from_legs(&cfg, smallvec![leg])
         .expect("receiver")
         .with_requester(requester, server.addr);
     let got = support::drain(&mut rx, 4);
@@ -94,13 +105,12 @@ fn assert_gap_recovered<T: DatagramRecv>(mut leg: T, deliver: impl FnOnce(&mut T
     assert_eq!(got[1].stream_id, 1);
     assert_eq!(got[2].stream_id, 1);
     assert!(rx.stats().pending_gaps.is_empty());
-    let requests = server.requests();
     assert_eq!(
-        requests.first(),
-        Some(&GapRequest {
+        server.requests(),
+        [GapRequest {
             start_seq: 2,
             count: 2
-        })
+        }]
     );
 }
 
