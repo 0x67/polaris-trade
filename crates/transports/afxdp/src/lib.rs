@@ -12,11 +12,18 @@
 //!
 //! | Redirect | Behaviour |
 //! | --- | --- |
-//! | `Builtin { mode }` (default `Skb`) | loads six-instruction program redirecting queue to XSKMAP, kernel stack on miss; attached through `BPF_LINK_CREATE`, so drop or crash detaches. One per interface and mode: second gets `Unavailable` |
+//! | `Builtin { mode }` (default `Skb`) | loads program redirecting queue's IPv4 UDP frames (untagged or one 802.1Q tag) to XSKMAP, every other frame and lookup miss to kernel stack; attached through `BPF_LINK_CREATE`, so drop or crash detaches. One per interface and mode: second gets `Unavailable` |
 //! | `Pinned { path }` | inserts socket into external program's pinned XSKMAP; program stays attached. Multi-queue deployments |
 //!
+//! Built-in mode keeps ARP and IGMP on kernel. Unrelated UDP on queue (NTP, DNS
+//! replies) still reaches socket, where `UdpDecap` drops and counts it: steer
+//! feed to own queue on such hosts.
+//!
 //! Privileges: `CAP_NET_RAW` for socket; built-in mode adds `CAP_BPF` and
-//! `CAP_NET_ADMIN`. UMEM is charged to `RLIMIT_MEMLOCK` unless `CAP_IPC_LOCK`.
+//! `CAP_NET_ADMIN`. Before kernel 6.5 with `kernel.unprivileged_bpf_disabled`
+//! set (Ubuntu and RHEL default), every `bpf()` command needs `CAP_BPF`, pinned
+//! mode's `OBJ_GET` and `MAP_UPDATE_ELEM` included. UMEM is charged to
+//! `RLIMIT_MEMLOCK` unless `CAP_IPC_LOCK`.
 //! Kernel 5.9 or later (`BPF_LINK_CREATE` for XDP). Rebinding queue right after
 //! drop can fail `Unavailable` for seconds while kernel releases old socket.
 //!

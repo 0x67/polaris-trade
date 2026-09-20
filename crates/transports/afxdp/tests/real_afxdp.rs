@@ -4,8 +4,9 @@
 //!
 //! Environment the script provides:
 //! - `AFXDP_IFACE`: pair end in this netns, one receive queue, holding `AFXDP_DST`.
-//! - `AFXDP_DST`: IPv4 address of `AFXDP_IFACE`. Peer keeps static neighbour
-//!   entry for it, since redirect swallows ARP.
+//! - `AFXDP_DST`: IPv4 address of `AFXDP_IFACE`. Built-in cases: peer resolves
+//!   it by ARP, which built-in program passes to kernel. Pinned case: peer keeps
+//!   static neighbour entry, since external program redirects ARP too.
 //! - `AFXDP_PEER_NETNS`: named netns (`/var/run/netns/<name>`) holding other end,
 //!   routed to `AFXDP_DST`.
 //! - `AFXDP_PINNED_MAP`: pinned case only; XSKMAP of external program attached

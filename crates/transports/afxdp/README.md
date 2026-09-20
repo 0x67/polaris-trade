@@ -1,6 +1,6 @@
 # transport_afxdp
 
-Linux AF_XDP receive for market-data feeds, over a raw XSK driver written against the kernel uapi with `libc`: no libbpf, no libxdp, no C toolchain. It loads its own six-instruction XDP redirect program, or plugs into an externally loaded one, and hands whole Ethernet frames to `transport_core`'s decap adapter for datagram consumers.
+Linux AF_XDP receive for market-data feeds, over a raw XSK driver written against the kernel uapi with `libc`: no libbpf, no libxdp, no C toolchain. It loads its own small XDP program, which redirects IPv4 UDP frames and leaves everything else to the kernel, or plugs into an externally loaded one, and hands whole Ethernet frames to `transport_core`'s decap adapter for datagram consumers.
 
 ## Types
 
@@ -36,15 +36,18 @@ Linux only: on other targets the crate is empty, so a workspace depending on it 
 
 | `XdpRedirect` | Behaviour |
 | --- | --- |
-| `Builtin { mode: Skb }` (default) | Loads `bpf_redirect_map(xskmap, rx_queue_index, XDP_PASS)` and attaches it in generic mode through `BPF_LINK_CREATE`. Works on any interface. Frames of other queues and lookup misses go to the kernel stack. Drop, or process exit, detaches it. |
+| `Builtin { mode: Skb }` (default) | Loads a program that sends IPv4 UDP frames, untagged or with one 802.1Q tag, to `bpf_redirect_map(xskmap, rx_queue_index, XDP_PASS)` and returns `XDP_PASS` for every other frame; attaches it in generic mode through `BPF_LINK_CREATE`. Works on any interface. Frames of other queues and lookup misses go to the kernel stack. Drop, or process exit, detaches it. |
 | `Builtin { mode: Drv }` | Same program in native driver mode; the driver must support XDP. No automatic fallback to `Skb`. |
 | `Pinned { path }` | Opens the XSKMAP an external program pinned at `path` (for example `xdp-loader` with `LIBBPF_PIN_BY_NAME`), checks it is an XSKMAP with 4-byte key and value covering the queue, and inserts the socket. The program stays attached after drop. |
+
+The built-in program filters on protocol only, never on port. ARP, IGMP, ICMP, IPv6, TCP, frames with stacked VLAN tags and frames too short to hold the Ethernet, IPv4 and UDP headers go to the kernel, so the host keeps answering ARP and IGMP membership queries on the bound queue. Other UDP traffic on that queue, such as NTP or DNS replies, still reaches the socket, where `UdpDecap` drops and counts it; on hosts that receive such traffic, steer the feed to a queue of its own with a flow rule. In pinned mode the external program decides what is redirected.
 
 Only one program can be attached per interface and mode, so a second built-in transport on another queue of the same interface fails with `Unavailable` ("use Pinned"). Multi-queue deployments load one external program and give every transport `Pinned`.
 
 ## Privileges and kernel
 
-- `CAP_NET_RAW` for the AF_XDP socket; built-in mode also needs `CAP_BPF` and `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`). Pinned mode needs no BPF capability on 7.0; older kernels with unprivileged BPF disabled likely need `CAP_BPF`.
+- `CAP_NET_RAW` for the AF_XDP socket; built-in mode also needs `CAP_BPF` and `CAP_NET_ADMIN` (or `CAP_SYS_ADMIN`).
+- On kernels before 6.5 with `kernel.unprivileged_bpf_disabled` set (the Ubuntu and RHEL default), every `bpf()` command needs `CAP_BPF`, including the pinned mode's `OBJ_GET` and `MAP_UPDATE_ELEM`. From 6.5 on, pinned mode needs no BPF capability.
 - The UMEM is charged to `RLIMIT_MEMLOCK` unless the process has `CAP_IPC_LOCK`; 4096 frames of 2048 bytes is 8 MiB.
 - Kernel 5.9 or later (XDP through `BPF_LINK_CREATE`).
 - Little-endian hosts only for the built-in program; big-endian returns `Unsupported`.
@@ -81,7 +84,7 @@ With `observability`, the bypass shell reports the increases of the three drop c
 
 ## Multicast
 
-`join_multicast` opens a kernel UDP socket on first use, holds it for the transport's life and joins the group on the bound interface by index. The kernel sends the IGMP or MLD report and programs the NIC's multicast filter; the redirect program hands the group's frames to the socket. The interface argument must be the default.
+`join_multicast` opens a kernel UDP socket on first use, holds it for the transport's life and joins the group on the bound interface by index. The kernel sends the IGMP or MLD report and programs the NIC's multicast filter; the redirect program hands the group's frames to the socket. The built-in program passes IGMP to the kernel, so the host answers membership queries and a snooping switch keeps forwarding the group. The interface argument must be the default.
 
 ## Limitations
 
@@ -89,10 +92,11 @@ With `observability`, the bypass shell reports the increases of the three drop c
 - Zero-copy teardown: the NIC may still write the UMEM after the socket closes, until the kernel's deferred teardown ends, and the transport frees the UMEM on drop. Copy mode is unaffected.
 - A MoldUDP re-request reply arriving on a redirected queue is captured by the AF_XDP socket, not the requester's kernel socket. Steer re-request replies to another queue with a flow rule on the requester's port, or bind the requester to the feed's destination port with `UdpDecap`'s `dst_ip` filter unset so the unicast reply passes through the leg.
 - `UdpDecap` handles IPv4 only.
+- The built-in program redirects every IPv4 UDP frame on the bound queue, not only the feed's port; unrelated UDP on that queue never reaches the kernel stack (see Redirect modes).
 
 ## Tests
 
-In-crate tests are syscall-free: descriptor mapping (payload at the descriptor address for several offsets, overrun and out-of-UMEM descriptors counted, not framed), receive over heap-backed rings, the ring index protocol across `u32` wrap (also under Miri for `x86_64-unknown-linux-gnu`), the redirect program bytes, and config validation. `tests/real_afxdp.rs` runs the conformance suite through `UdpDecap<AfxdpL2>` in each redirect mode plus a multicast case; it is `#[ignore]` and needs a privileged veth setup from the kernel-proof script (environment listed in the file header).
+In-crate tests are syscall-free: descriptor mapping (payload at the descriptor address for several offsets, overrun and out-of-UMEM descriptors counted, not framed), receive over heap-backed rings, the ring index protocol across `u32` wrap (also under Miri for `x86_64-unknown-linux-gnu`), the redirect program bytes, the program's filter run by a small in-test interpreter over tagged, untagged, non-UDP, non-IPv4 and short frames, and config validation. `tests/real_afxdp.rs` runs the conformance suite through `UdpDecap<AfxdpL2>` in each redirect mode plus a multicast case; it is `#[ignore]` and needs a privileged veth setup from the kernel-proof script (environment listed in the file header). The built-in cases run without a static neighbour entry, so the peer's ARP resolution through the loaded program is part of the proof.
 
 ## License
 

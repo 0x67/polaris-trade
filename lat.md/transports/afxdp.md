@@ -32,15 +32,19 @@ Indices run free and wrap at `u32`; the writer publishes with a Release store of
 
 `xdp/sys` holds one `#[repr(C, align(8))]` attr prefix per `bpf()` command with named padding, const size and offset asserts, the `unsafe trait Attr` layout contract and one syscall wrapper; EPERM maps to `Unavailable` naming `CAP_BPF` and `CAP_NET_ADMIN`.
 
-[[crates/transports/afxdp/src/xdp/program.rs#instructions]] encodes `bpf_redirect_map(xskmap, rx_queue_index, XDP_PASS)` in six instructions; [[crates/transports/afxdp/src/xdp/program.rs#load]] loads it with no log, reloads with a 64 KiB verifier log on failure and emits that log once at `error` level. Big-endian hosts get `Unsupported` for the built-in program; pinned mode still works there.
+[[crates/transports/afxdp/src/xdp/program.rs#instructions]] encodes a 25-instruction filter in front of `bpf_redirect_map(xskmap, rx_queue_index, XDP_PASS)`: IPv4 UDP frames, untagged or with one 802.1Q tag (the frames `UdpDecap` accepts), are redirected; every other frame returns `XDP_PASS`. Untagged and tagged frames take separate paths with constant offsets, and each packet load follows a `data + N > data_end` check, as the verifier requires. [[crates/transports/afxdp/src/xdp/program.rs#load]] loads it with no log, reloads with a 64 KiB verifier log on failure and emits that log once at `error` level. Big-endian hosts get `Unsupported` for the built-in program; pinned mode still works there.
 
 [[crates/transports/afxdp/src/xdp/map.rs#XskMap]] creates a map of `queue + 1` entries or opens a pinned one, checking type, key and value size and that the queue fits; inserts use `BPF_NOEXIST` (E2BIG is `InvalidConfig { field: "queue" }`, EEXIST `Unavailable`). [[crates/transports/afxdp/src/xdp/link.rs#XdpLink]] attaches through `BPF_LINK_CREATE`; its fd is the only handle, so drop or process exit detaches, and EBUSY suggests `Pinned`. Netlink attach is not offered, since it survives a crash.
+
+The filter checks protocol, never port. ARP, IGMP, ICMP, IPv6, TCP, stacked tags and frames shorter than the Ethernet, IPv4 and UDP headers reach the kernel, so the host keeps answering ARP and IGMP queries on the bound queue. Other UDP on the queue (NTP, DNS replies) still reaches the socket, where `UdpDecap` drops and counts it; hosts receiving such traffic steer the feed to its own queue. Pinned mode is unchanged: the external program decides.
 
 Only one program attaches per interface and mode, so a second built-in transport on another queue of one interface fails; multi-queue deployments load one external program and give each transport `Pinned`.
 
 ## Multicast
 
 Joining opens a kernel UDP socket per address family on first use and joins on the bound interface by index; the kernel sends the report and programs the NIC filter, the redirect hands group frames to the socket.
+
+The built-in program passes IGMP to the kernel, so membership queries are answered and a snooping switch keeps forwarding the group.
 
 Any `iface` field set is `InvalidConfig { field: "iface" }`, since AF_XDP receives only on its bound interface.
 
@@ -49,13 +53,16 @@ Any `iface` field set is `InvalidConfig { field: "iface" }`, since AF_XDP receiv
 Linux 5.9 or later (XDP through `BPF_LINK_CREATE`). Capabilities depend on the redirect mode; the UMEM counts against the memory-lock limit.
 
 - `CAP_NET_RAW` opens the AF_XDP socket (EPERM is `Unavailable` naming it).
-- Built-in mode also needs `CAP_BPF` and `CAP_NET_ADMIN` (XSKMAP creation needs the latter), or `CAP_SYS_ADMIN`. Pinned mode needed no BPF capability on 7.0; older kernels with unprivileged BPF disabled likely need `CAP_BPF`.
+- Built-in mode also needs `CAP_BPF` and `CAP_NET_ADMIN` (XSKMAP creation needs the latter), or `CAP_SYS_ADMIN`.
+- Before 6.5 with `kernel.unprivileged_bpf_disabled` set (the Ubuntu and RHEL default), every `bpf()` command needs `CAP_BPF`, the pinned mode's `OBJ_GET` and `MAP_UPDATE_ELEM` included; from 6.5 pinned mode needs no BPF capability.
 - The UMEM is charged to `RLIMIT_MEMLOCK` unless the process has `CAP_IPC_LOCK`; `XDP_UMEM_REG` ENOBUFS is `Unavailable` saying so. The default UMEM is 8 MiB.
 - After a transport drops, binding the same queue can fail EBUSY for seconds while the kernel releases the old socket (lazy RCU); it maps to `Unavailable`.
 
 ## Limitations
 
 Native driver mode was verified only on veth and zero-copy not at all; both stay opt-in. Decap handles IPv4 only.
+
+The built-in program redirects all IPv4 UDP on the bound queue, not only the feed's port, so unrelated UDP there never reaches the kernel stack; steer the feed to its own queue on hosts that receive such traffic.
 
 Zero-copy teardown: the NIC may still write the UMEM after the socket closes, until the kernel's deferred teardown ends, and the region is freed at that point today. Copy mode is unaffected. Keeping the region alive until teardown is confirmed is a follow-up in the core region.
 
@@ -85,8 +92,8 @@ The old backend read payloads from the wrong offset and could not receive withou
 
 ## Tests
 
-In-crate tests need no kernel: descriptor mapping, receive over heap rings, ring protocol across wrap, program bytes and config validation. Kernel paths run only in `tests/real_afxdp.rs`, ignored by default.
+In-crate tests need no kernel: descriptor mapping, receive over heap rings, ring protocol across wrap, program bytes and filter, and config validation. Kernel paths run only in `tests/real_afxdp.rs`, ignored by default.
 
-`driver` tests: `locate_bounds_payload_by_frame_and_umem`, `reap_yields_bytes_at_descriptor_address_bounded_by_spare` (payloads at the default, configured and program-moved offsets, byte-equal), `reap_counts_overrun_descriptor_and_recycles_its_slot_only`. `ring` tests (also under Miri): `ring_producer_stops_at_full_and_resumes_across_wrap`, `ring_consumer_takes_at_most_max_and_releases_across_wrap`, `ring_producer_reports_wakeup_flag`. `instructions_match_verified_redirect_program` pins the program bytes verified on kernel 7.0.
+`driver` tests: `locate_bounds_payload_by_frame_and_umem`, `reap_yields_bytes_at_descriptor_address_bounded_by_spare` (payloads at the default, configured and program-moved offsets, byte-equal), `reap_counts_overrun_descriptor_and_recycles_its_slot_only`. `ring` tests (also under Miri): `ring_producer_stops_at_full_and_resumes_across_wrap`, `ring_consumer_takes_at_most_max_and_releases_across_wrap`, `ring_producer_reports_wakeup_flag`. `instructions_match_verified_filter_program` pins the program bytes verified on kernel 7.0; `filter_redirects_ipv4_udp_untagged_or_under_one_tag` and `filter_passes_everything_else` run the program through a small in-test interpreter over UDP, ARP, IPv6, IGMP, ICMP, TCP, stacked-tag and short frames, failing on any load past the frame end.
 
-`tests/real_afxdp.rs` runs the conformance suite through `UdpDecap<AfxdpL2>`: `builtin_skb_passes_conformance_and_detaches_on_drop`, `builtin_drv_passes_conformance_and_detaches_on_drop`, `pinned_passes_conformance_and_leaves_program_attached`, and `multicast_join_listed_and_group_datagram_received` (`/proc/net/igmp` plus a group datagram). The kernel-proof script supplies `AFXDP_IFACE`, `AFXDP_DST`, `AFXDP_PEER_NETNS` and `AFXDP_PINNED_MAP`.
+`tests/real_afxdp.rs` runs the conformance suite through `UdpDecap<AfxdpL2>`: `builtin_skb_passes_conformance_and_detaches_on_drop`, `builtin_drv_passes_conformance_and_detaches_on_drop`, `pinned_passes_conformance_and_leaves_program_attached`, and `multicast_join_listed_and_group_datagram_received` (`/proc/net/igmp` plus a group datagram). The kernel-proof script supplies `AFXDP_IFACE`, `AFXDP_DST`, `AFXDP_PEER_NETNS` and `AFXDP_PINNED_MAP`. Built-in cases run with no static neighbour entry in the peer, so ARP answered through the loaded program is part of the proof; the pinned case keeps one, since its fixture program redirects every frame.

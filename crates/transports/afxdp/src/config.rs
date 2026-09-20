@@ -18,7 +18,7 @@ const DEFAULT_FRAME_SIZE: NonZeroU32 = NonZeroU32::new(2048).unwrap();
 #[non_exhaustive]
 pub enum XdpRedirect {
     /// Load built-in program and attach it for transport's life; drop detaches.
-    /// Program sends queue's frames to socket, rest to kernel stack.
+    /// Program sends queue's IPv4 UDP frames to socket, rest to kernel stack.
     Builtin {
         /// Attach mode. No automatic fallback.
         mode: XdpMode,

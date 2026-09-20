@@ -113,7 +113,8 @@ veth_down() {
 	{ echo 1 >/sys/module/rcutree/parameters/do_rcu_barrier; } 2>/dev/null || true
 }
 
-# fresh pair per case; leftovers from earlier case or run removed first
+# fresh pair per case; leftovers from earlier case or run removed first.
+# No static neighbour: peer resolves DST by ARP, which built-in program must pass to kernel
 veth_up() {
 	trap veth_down EXIT
 	veth_down
@@ -126,9 +127,6 @@ veth_up() {
 	ip link set "$IFACE" up
 	peer ip addr add "$PEER_ADDR/30" dev "$PEER_IFACE"
 	peer ip link set "$PEER_IFACE" up
-	# redirect swallows ARP, so peer learns receiver MAC statically
-	peer ip neigh replace "$DST" lladdr "$(cat "/sys/class/net/$IFACE/address")" \
-		dev "$PEER_IFACE" nud permanent
 }
 
 afxdp_test() {
@@ -145,6 +143,9 @@ afxdp_pinned() {
 	mkdir -p "$PIN_DIR"
 	bpftool prog load "$obj" "$PIN_DIR/xsk_redirect" type xdp pinmaps "$PIN_DIR"
 	bpftool net attach xdpgeneric pinned "$PIN_DIR/xsk_redirect" dev "$IFACE"
+	# fixture redirects every frame, ARP included: peer learns receiver MAC statically
+	peer ip neigh replace "$DST" lladdr "$(cat "/sys/class/net/$IFACE/address")" \
+		dev "$PEER_IFACE" nud permanent
 	AFXDP_PINNED_MAP=$PIN_DIR/xsks_map expect_tests 1 -p transport_afxdp \
 		-E 'test(=pinned_passes_conformance_and_leaves_program_attached)'
 }
