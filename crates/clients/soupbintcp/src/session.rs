@@ -120,29 +120,39 @@ impl Session {
         }
     }
 
-    /// Append one packet to outbound buffer.
-    pub(crate) fn queue(&mut self, ty: PacketType, payload: &[u8]) {
-        // payload always far below u16::MAX: login 46 bytes, caller messages bounded by protocol
-        let len = u16::try_from(1 + payload.len()).unwrap_or(u16::MAX);
+    /// Append one packet to outbound buffer; appends nothing on error.
+    ///
+    /// # Errors
+    ///
+    /// [`SoupBinError::FrameTooLarge`] when `payload` passes 65534 bytes:
+    /// `u16` length prefix counts type byte too.
+    pub(crate) fn queue(&mut self, ty: PacketType, payload: &[u8]) -> Result<(), SoupBinError> {
+        let len = u16::try_from(1 + payload.len()).map_err(|_| SoupBinError::FrameTooLarge {
+            size: payload.len(),
+            max: usize::from(u16::MAX) - 1,
+        })?;
         self.out.extend_from_slice(&len.to_be_bytes());
         self.out.put_u8(ty as u8);
         self.out.extend_from_slice(payload);
+        Ok(())
     }
 
-    pub(crate) fn queue_login(&mut self, now: Instant) {
+    pub(crate) fn queue_login(&mut self, now: Instant) -> Result<(), SoupBinError> {
         let payload = login_request(&self.cfg);
-        self.queue(PacketType::LoginRequest, &payload);
+        self.queue(PacketType::LoginRequest, &payload)?;
         self.state = ClientState::Authenticating;
         self.login_deadline = now + self.cfg.login_timeout;
+        Ok(())
     }
 
-    pub(crate) fn queue_heartbeat(&mut self) {
-        self.queue(PacketType::ClientHeartbeat, &[]);
+    pub(crate) fn queue_heartbeat(&mut self) -> Result<(), SoupBinError> {
+        self.queue(PacketType::ClientHeartbeat, &[])?;
         // counter only: per-heartbeat log would flood
         #[cfg(feature = "observability")]
         if observability_core::metrics_enabled() {
             metrics::counter!("client.heartbeats", "protocol" => PROTOCOL).increment(1);
         }
+        Ok(())
     }
 
     /// Close after logout was queued (sync) or written (async).
@@ -389,7 +399,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
     pub fn start(transport: T, cfg: SoupBinClientConfig) -> Result<Self, SoupBinError> {
         let now = Instant::now();
         let mut client = Self::new(transport, cfg);
-        client.session.queue_login(now);
+        client.session.queue_login(now)?;
         client.session.flush(&mut client.transport, now)?;
         Ok(client)
     }
@@ -419,13 +429,14 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
     ///
     /// # Errors
     ///
-    /// [`SoupBinError::EndOfSession`] once closed.
+    /// [`SoupBinError::EndOfSession`] once closed;
+    /// [`SoupBinError::FrameTooLarge`] when `payload` passes 65534 bytes,
+    /// queueing nothing.
     pub fn queue_unsequenced(&mut self, payload: &[u8]) -> Result<(), SoupBinError> {
         if self.session.state == ClientState::Closed {
             return Err(SoupBinError::EndOfSession);
         }
-        self.session.queue(PacketType::UnsequencedData, payload);
-        Ok(())
+        self.session.queue(PacketType::UnsequencedData, payload)
     }
 
     /// Queue `Logout Request (O)` and close; later `poll`s flush it, then
@@ -438,7 +449,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
         if self.session.state == ClientState::Closed {
             return Err(SoupBinError::EndOfSession);
         }
-        self.session.queue(PacketType::LogoutRequest, &[]);
+        self.session.queue(PacketType::LogoutRequest, &[])?;
         self.session.close_logout();
         Ok(())
     }
@@ -472,7 +483,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
     fn poll_stream(&mut self, now: Instant) -> Result<Option<SoupBinMessage<'_>>, SoupBinError> {
         // before receive, so busy feed never starves client heartbeats
         if self.session.heartbeat_due(now) {
-            self.session.queue_heartbeat();
+            self.session.queue_heartbeat()?;
             self.session.flush(&mut self.transport, now)?;
             return Ok(Some(SoupBinMessage::Event(SoupBinEvent::HeartbeatSent)));
         }
@@ -551,6 +562,27 @@ fn parse_ascii_numeric(bytes: &[u8]) -> Result<u64, SoupBinError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queue_rejects_payload_past_length_prefix() {
+        let mut session = Session::new(SoupBinClientConfig::default());
+        session.queue(PacketType::ClientHeartbeat, &[]).unwrap();
+        let before = session.out.clone();
+        let max = usize::from(u16::MAX) - 1;
+
+        let result = session.queue(PacketType::UnsequencedData, &vec![7; max + 1]);
+        assert!(
+            matches!(result, Err(SoupBinError::FrameTooLarge { size, max: m }) if size == max + 1 && m == max),
+            "{result:?}"
+        );
+        assert_eq!(session.out, before, "rejected payload must queue nothing");
+
+        // largest payload still fits: length prefix 0xffff counts type byte
+        session
+            .queue(PacketType::UnsequencedData, &vec![7; max])
+            .unwrap();
+        assert_eq!(session.out[before.len()..][..2], [0xff, 0xff]);
+    }
 
     #[test]
     fn login_request_justifies_fields() {

@@ -19,6 +19,8 @@ SoupBinTCP 3.0 client: login handshake, sequenced and unsequenced framing, heart
 
 A pinned busy-poll loop calls `poll` again at once (see Usage). A parked loop registers the `MioTcp` in a `ReadySet` before `start`, then waits until `next_deadline()` whenever `poll` returns `None`.
 
+`queue_unsequenced` (and async `send_unsequenced`) reject a payload over 65534 bytes with `FrameTooLarge`, queueing nothing: the `u16` length prefix counts the type byte.
+
 After logout, rejected login, heartbeat timeout or end of session the session is closed: `poll` flushes what is still queued (the logout request), then returns `Err(EndOfSession)`. A server closing without end of session is `Err(Transport(PeerClosed))`.
 
 ## Async session

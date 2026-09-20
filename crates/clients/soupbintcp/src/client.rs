@@ -86,7 +86,7 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
     /// client on error, closing socket.
     pub async fn connect(transport: T, cfg: SoupBinClientConfig) -> Result<Self, SoupBinError> {
         let mut client = Self::new(transport, cfg);
-        client.session.queue_login(Instant::now());
+        client.session.queue_login(Instant::now())?;
         client.write_out().await?;
         client.login().await?;
         Ok(client)
@@ -152,10 +152,12 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
     ///
     /// # Errors
     ///
-    /// [`SoupBinError::EndOfSession`] once closed; transport failure.
+    /// [`SoupBinError::EndOfSession`] once closed;
+    /// [`SoupBinError::FrameTooLarge`] when `payload` passes 65534 bytes,
+    /// writing nothing; transport failure.
     pub async fn send_unsequenced(&mut self, payload: &[u8]) -> Result<(), SoupBinError> {
         self.ensure_open()?;
-        self.session.queue(PacketType::UnsequencedData, payload);
+        self.session.queue(PacketType::UnsequencedData, payload)?;
         self.write_out().await
     }
 
@@ -168,7 +170,7 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
         if self.session.state == ClientState::Closed {
             return Ok(());
         }
-        self.session.queue(PacketType::LogoutRequest, &[]);
+        self.session.queue(PacketType::LogoutRequest, &[])?;
         self.write_out().await?;
         self.session.close_logout();
         Ok(())
@@ -189,7 +191,7 @@ impl<T: StreamRecv + StreamSend + AsyncReady> SoupBinClient<T> {
             return Ok(Some(SoupBinEvent::HeartbeatTimeout));
         }
         if self.session.heartbeat_due(now) {
-            self.session.queue_heartbeat();
+            self.session.queue_heartbeat()?;
             self.write_out().await?;
             return Ok(Some(SoupBinEvent::HeartbeatSent));
         }
