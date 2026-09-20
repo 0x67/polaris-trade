@@ -139,13 +139,13 @@ impl<T: DatagramRecv> Inner<T> {
         }
     }
 
-    /// Promote arbiter gap candidates whose confirm window elapsed into gap
-    /// handler. Only multi-leg path stages candidates; no-op on one leg.
-    pub(super) fn drain_confirmed_gaps(&mut self) {
+    /// Promote arbiter gap candidates whose confirm window elapsed by `now`
+    /// into gap handler. Only multi-leg path stages candidates; no-op on one leg.
+    pub(super) fn drain_confirmed_gaps(&mut self, now: Instant) {
         let Some(arbiter) = self.arbiter.as_mut() else {
             return;
         };
-        let confirmed = arbiter.confirmed_gaps(Instant::now());
+        let confirmed = arbiter.confirmed_gaps(now);
         if let (Some(&first), Some(&last)) = (confirmed.first(), confirmed.last()) {
             tracing::warn!(
                 first,
@@ -191,8 +191,12 @@ impl<T: DatagramRecv> Inner<T> {
     /// inline (no `Arc`); message ahead of `expected_next` promotes datagram
     /// to shared `Arc` (at most once per datagram) and buffers view in
     /// reassembler. Runs only with `ready` empty and `current` retired, so no
-    /// `Inline` item still references `backing`.
-    pub(super) fn process_next_pending(&mut self) -> Result<(), MoldUdpError> {
+    /// `Inline` item still references `backing`. `now` is arbiter clock, `Some`
+    /// exactly when multi-leg.
+    pub(super) fn process_next_pending(
+        &mut self,
+        now: Option<Instant>,
+    ) -> Result<(), MoldUdpError> {
         let Some((stream_id, datagram)) = self.pending_datagrams.pop_front() else {
             return Ok(());
         };
@@ -230,8 +234,8 @@ impl<T: DatagramRecv> Inner<T> {
         // recorded once; A/B stages it so lagging leg gets its confirm window
         let unseen = self.next_unseen;
         if header.sequence > unseen {
-            if let Some(arbiter) = self.arbiter.as_mut() {
-                arbiter.note_missing_range(unseen, header.sequence, Instant::now());
+            if let Some((arbiter, now)) = self.arbiter.as_mut().zip(now) {
+                arbiter.note_missing_range(unseen, header.sequence, now);
             } else {
                 self.gap_handler
                     .record_missing_range(unseen, header.sequence);
@@ -253,8 +257,8 @@ impl<T: DatagramRecv> Inner<T> {
         let mut backing = Backing::Owned(datagram);
         let mut inline = 0;
         for &(seq, offset, len) in &self.blocks {
-            if let Some(arbiter) = self.arbiter.as_mut() {
-                match arbiter.observe(stream_id, seq, Instant::now()) {
+            if let Some((arbiter, now)) = self.arbiter.as_mut().zip(now) {
+                match arbiter.observe(stream_id, seq, now) {
                     ArbiterVerdict::Duplicate | ArbiterVerdict::OutOfWindow => continue,
                     ArbiterVerdict::Forward => {}
                 }

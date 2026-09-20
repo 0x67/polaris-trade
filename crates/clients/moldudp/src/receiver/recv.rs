@@ -1,5 +1,7 @@
 //! Synchronous receive: send due re-requests, reap every source, decode.
 
+use std::time::Instant;
+
 use transport_core::DatagramRecv;
 
 use super::{MoldUdpOutcome, MoldUdpReceiver, Recovery};
@@ -50,8 +52,12 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
                     return Ok(());
                 }
             }
-            inner.process_next_pending()?;
-            inner.drain_confirmed_gaps();
+            // arbiter clock: one read per datagram, none on one leg
+            let now = inner.arbiter.is_some().then(Instant::now);
+            inner.process_next_pending(now)?;
+            if let Some(now) = now {
+                inner.drain_confirmed_gaps(now);
+            }
         }
     }
 }

@@ -16,7 +16,7 @@ The config keeps session, sequence and gap-timing fields; socket options live on
 
 That contract lets a caller park on an edge-triggered `ReadySet` ([[socket#Readiness]]) after `None`. In-order datagrams drain inline, borrowed from the still-owned frame with no allocation, whatever their message count (block offsets go through one receiver-owned scratch sized for a full MTU datagram); a datagram ahead of the expected sequence becomes one shared `Arc`, and its messages wait in the [[crates/clients/moldudp/src/reassembly.rs#SequenceReassembler]]. Async `recv` and `recv_owned` exist only when legs (and the requester) implement `AsyncReady`; they spin the same path, then wait on every leg.
 
-A gap opens only past the highest sequence seen on any source (data or heartbeat), so datagrams landing behind an open gap never re-report it or re-stage it. Detection on one leg, confirmation on several, and a heartbeat tail gap each log one `warn`.
+A gap opens only past the highest sequence seen on any source (data or heartbeat), so datagrams landing behind an open gap never re-report it or re-stage it. With two or more legs the arbiter's clock is read once per datagram and shared by staging, first-arrival checks and confirmation; one leg reads no clock. Detection on one leg, confirmation on several, and a heartbeat tail gap each log one `warn`.
 
 ## Gap recovery
 
