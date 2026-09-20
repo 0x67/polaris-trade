@@ -1,7 +1,8 @@
 //! TCP cases beyond conformance suite (`tests/conformance.rs` covers empty
 //! read, ordered bytes, `PeerClosed`, resumed `try_send`, 8 MiB `send_all`):
 //! config rejected before connecting, connect refusal and timeout mapping, and
-//! partial write under tiny `SO_SNDBUF` resumed on `ReadySet` writable readiness.
+//! a capped write stalled on a full socket then resumed on `ReadySet` writable
+//! readiness.
 
 #[cfg(any(feature = "mio", feature = "tokio"))]
 use std::net::{SocketAddr, TcpListener};
@@ -188,8 +189,13 @@ fn mio_partial_write_resumes_on_writable_readiness() {
     use transport_core::StreamTrySend;
     use transport_socket::mio::{MioTcp, ReadySet, ReadyToken};
 
-    // far above tiny send buffer plus peer receive buffer, so writes must stall
+    // far above what the kernel holds for an unread peer, so writes must stall
     const LEN: usize = 1024 * 1024;
+    // Winsock takes an entire `send` request whatever `SO_SNDBUF` says: the
+    // option bounds standing buffered bytes, not one call, and would-block
+    // arrives only when a call finds no room at entry. Capping each call is
+    // what makes the stall reachable on every platform.
+    const CHUNK: usize = 64 * 1024;
     const TOKEN: ReadyToken = ReadyToken(0);
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
@@ -201,10 +207,11 @@ fn mio_partial_write_resumes_on_writable_readiness() {
     let (mut peer, _) = listener.accept().expect("accept");
     let data: Vec<u8> = (0..=250).cycle().take(LEN).collect();
 
-    // peer not reading: short writes, then would-block as `Ok(0)`
+    // peer not reading: capped writes, then would-block as `Ok(0)`
     let mut sent = 0;
     loop {
-        let n = tcp.try_send(&data[sent..]).expect("try_send");
+        let end = (sent + CHUNK).min(LEN);
+        let n = tcp.try_send(&data[sent..end]).expect("try_send");
         if n == 0 {
             break;
         }
@@ -214,7 +221,7 @@ fn mio_partial_write_resumes_on_writable_readiness() {
             "peer took whole {LEN} bytes without would-block"
         );
     }
-    assert!(sent > 0, "no short write before would-block");
+    assert!(sent > 0, "no bytes accepted before would-block");
 
     let mut poll = ReadySet::new(NonZeroUsize::new(4).unwrap()).expect("ready set");
     poll.register(&mut tcp, TOKEN).expect("register");
@@ -236,7 +243,8 @@ fn mio_partial_write_resumes_on_writable_readiness() {
             .expect("wait");
         if reports.iter().any(|r| r.token == TOKEN && r.writable) {
             while sent < LEN {
-                match tcp.try_send(&data[sent..]).expect("try_send") {
+                let end = (sent + CHUNK).min(LEN);
+                match tcp.try_send(&data[sent..end]).expect("try_send") {
                     0 => break,
                     n => sent += n,
                 }
