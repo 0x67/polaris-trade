@@ -79,7 +79,9 @@ impl Fleet {
 
     fn complete(&mut self, completion: Completion) {
         let ended = match completion {
-            Completion::Data { rearm, .. } | Completion::Truncated { rearm, .. } => rearm,
+            Completion::Data { rearm, .. }
+            | Completion::Truncated { rearm, .. }
+            | Completion::Empty { rearm } => rearm,
             Completion::NoBuffers => {
                 self.starved = true;
                 true
@@ -204,6 +206,8 @@ impl UringDriver {
                     self.stats.truncated += 1;
                     self.back.push(u32::from(slot));
                 }
+                // nothing to deliver; loop reads on, so it never looks idle
+                Completion::Empty { .. } => {}
                 Completion::NoBuffers => self.stats.no_buffer += 1,
                 Completion::Failed(errno) => {
                     return Err(TransportError::Io {
@@ -511,5 +515,18 @@ mod tests {
         fleet.armed = 1;
         fleet.complete(Completion::Failed(libc::ECONNREFUSED));
         assert_eq!(fleet.wanted(), 1, "failed recv not re-armed");
+        fleet.armed = 1;
+        fleet.complete(Completion::Empty { rearm: false });
+        assert_eq!(
+            fleet.wanted(),
+            0,
+            "empty multishot completion with F_MORE re-armed"
+        );
+        fleet.complete(Completion::Empty { rearm: true });
+        assert_eq!(
+            fleet.wanted(),
+            1,
+            "recv ended by empty datagram not re-armed"
+        );
     }
 }

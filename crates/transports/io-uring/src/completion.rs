@@ -26,11 +26,18 @@ pub enum Completion {
         /// Request ended.
         rearm: bool,
     },
+    /// Empty datagram on kernel 6.0+: kernel recycled buffer itself, so no
+    /// buffer id, no slot, no frame. Before 6.0 same datagram is `Data` with
+    /// `len` 0.
+    Empty {
+        /// Request ended.
+        rearm: bool,
+    },
     /// ENOBUFS: group had no buffer. Request ended; data, if any, stays queued
     /// in socket.
     NoBuffers,
-    /// Request failed with this errno and ended. Success without buffer id
-    /// breaks buffer-select contract and reports `EIO`.
+    /// Request failed with this errno and ended. Non-empty success without
+    /// buffer id breaks buffer-select contract and reports `EIO`.
     Failed(i32),
 }
 
@@ -45,10 +52,14 @@ pub fn classify(res: i32, flags: u32, slot_size: u32, multishot: bool) -> Comple
             Completion::Failed(-res)
         };
     }
-    let Some(slot) = cqueue::buffer_select(flags) else {
-        return Completion::Failed(libc::EIO);
-    };
     let rearm = !(multishot && cqueue::more(flags));
+    let Some(slot) = cqueue::buffer_select(flags) else {
+        return if res == 0 {
+            Completion::Empty { rearm }
+        } else {
+            Completion::Failed(libc::EIO)
+        };
+    };
     let len = res.unsigned_abs();
     if len > slot_size {
         Completion::Truncated { slot, rearm }

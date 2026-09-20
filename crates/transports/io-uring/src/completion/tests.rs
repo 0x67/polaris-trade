@@ -40,13 +40,23 @@ fn classify_maps_every_completion_shape() {
             },
         ),
         (
-            "zero-length datagram still holds slot",
+            "empty datagram before 6.0 still holds slot",
             (0, with_buffer(5), false),
             Completion::Data {
                 slot: 5,
                 len: 0,
                 rearm: true,
             },
+        ),
+        (
+            "empty datagram from 6.0 has no buffer id",
+            (0, 0, false),
+            Completion::Empty { rearm: true },
+        ),
+        (
+            "empty datagram ends multishot",
+            (0, 0, true),
+            Completion::Empty { rearm: true },
         ),
         (
             "datagram exactly slot size is whole",

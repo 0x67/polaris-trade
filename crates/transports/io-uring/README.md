@@ -54,6 +54,7 @@ Detection runs at bind on the running kernel, not from its version string, so di
 - io_uring must be allowed: `kernel.io_uring_disabled` at 0 (or 1 with the process in `kernel.io_uring_group`), and no seccomp filter blocking `io_uring_setup`. Docker's default profile blocks it; bind then returns `Unavailable` with the OS error.
 - Kernels before 5.12 charge ring memory to `RLIMIT_MEMLOCK`; a low limit fails ring setup.
 - With every slot held by the caller, `recv_burst` returns `PoolExhausted` and counts `no_buffer`; the datagram waits in the socket buffer until a frame is dropped.
+- An empty datagram never fails `recv_burst`: kernels 6.0 and later drop it without a frame, older kernels deliver it as a 0-byte frame.
 - Dropping the transport cancels armed recvs and waits up to one second for them. If they do not end in time the receive memory is leaked, never freed under the kernel, and one `warn` event is logged. The bounded wait needs `IORING_FEAT_EXT_ARG` (5.11); on older kernels the memory leaks whenever recvs are still armed at drop, with the warning.
 - No capability is needed once io_uring is allowed.
 

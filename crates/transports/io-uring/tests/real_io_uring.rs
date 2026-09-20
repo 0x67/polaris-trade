@@ -1,7 +1,7 @@
 //! `io_uring` against a live kernel, one test per forced receive path
-//! (conformance, exhaustion counter, truncation, idle spin without syscall,
-//! drop idle and under traffic), plus multicast join and bind without
-//! `io_uring` access.
+//! (conformance, exhaustion counter, truncation, empty datagram, idle spin
+//! without syscall, drop idle and under traffic), plus multicast join and bind
+//! without `io_uring` access.
 //!
 //! Every test but last needs `io_uring`, which default Docker seccomp blocks
 //! (privileged container or host); last needs it blocked. Run with
@@ -70,6 +70,7 @@ fn check_path(path: RecvPath) {
     conformance(path);
     exhaustion_counts_no_buffer(path);
     truncated_datagram_frees_its_slot(path);
+    empty_datagram_never_fails_burst(path);
     idle_spin_makes_no_syscall(path);
     drop_confirms_cancellation(path);
 }
@@ -123,6 +124,20 @@ fn truncated_datagram_frees_its_slot(path: RecvPath) {
     tx.send_to(&[5; 64], to).expect("send fitting");
     assert_eq!(recv_n(&mut t, 1)[0].as_ref(), [5; 64], "{path:?}");
     assert_eq!(t.stats().truncated, 1, "{path:?}: {:?}", t.stats());
+}
+
+// any host reaching port can send one; kernel 6.0+ completes it without buffer id
+fn empty_datagram_never_fails_burst(path: RecvPath) {
+    let mut t = bind(path, 4);
+    let (tx, to) = (sender(), t.local_addr().expect("local addr"));
+    tx.send_to(&[], to).expect("send empty");
+    tx.send_to(&[4; 16], to).expect("send payload");
+    let mut got = recv_n(&mut t, 1);
+    // kernels before 6.0 hand empty datagram over as 0-byte frame
+    if got[0].as_ref().is_empty() {
+        got = recv_n(&mut t, 1);
+    }
+    assert_eq!(got[0].as_ref(), [4; 16], "{path:?}");
 }
 
 fn idle_spin_makes_no_syscall(path: RecvPath) {
