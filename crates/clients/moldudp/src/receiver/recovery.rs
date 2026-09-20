@@ -1,7 +1,7 @@
 //! Gap recovery type state: [`NoRecovery`] carries nothing, [`Requester`]
 //! owns unicast socket that sends re-requests and reads retransmissions.
 
-use std::{future, net::SocketAddr, num::NonZeroUsize};
+use std::{future, net::SocketAddr, num::NonZeroUsize, time::Instant};
 
 use transport_core::{AsyncReady, DatagramRecv, DatagramSend, FrameBatch, TransportError};
 
@@ -87,7 +87,10 @@ impl<Q: DatagramRecv> Requester<Q> {
 impl<Q: DatagramRecv + DatagramSend> sealed::Sealed for Requester<Q> {
     fn send_due(&mut self, session: [u8; 10], gaps: &GapRequestHandler) {
         gaps.pending_gaps_into(&mut self.due);
-        match self.emitter.emit(&self.due, session, &mut self.sock) {
+        match self
+            .emitter
+            .emit(&self.due, session, &mut self.sock, Instant::now())
+        {
             Ok(0) => {}
             Ok(sent) => tracing::debug!(sent, "gap re-requests sent"),
             // emitter already backed failed range off one interval

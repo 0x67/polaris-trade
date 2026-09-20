@@ -1,7 +1,11 @@
 //! `GapRequestEmitter`: Request Packet wire shape, per-gap rate limit, and
 //! retry of send that met full socket buffer.
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{
+    io,
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use client_moldudp::{GapRequest, GapRequestEmitter};
 use transport_core::{DatagramSend, Transport, TransportError};
@@ -50,17 +54,18 @@ fn rate_limits_repeated_requests_for_the_same_gap() {
     // 4 requests/sec/gap => 250 ms minimum spacing
     let mut emitter = GapRequestEmitter::new(server(), 4);
 
+    // driven clock, ten 111 ms steps: a send at 0 admits the next at 333, not
+    // 222, so the gap goes out at 0, 333, 666, 999 and nowhere between
+    let base = Instant::now();
     let mut total_sent = 0usize;
-    for _ in 0..10 {
-        total_sent += emitter.emit(&[GAP], SESSION, &mut sock).expect("emit");
-        std::thread::sleep(Duration::from_millis(111));
+    for step in 0..10 {
+        let now = base + Duration::from_millis(111 * step);
+        total_sent += emitter.emit(&[GAP], SESSION, &mut sock, now).expect("emit");
     }
 
-    // real clock: ten 111 ms-spaced emits over ~1.1 s at 4/s ideally send 4;
-    // coarse timers (Windows ~15 ms) shift it, so assert capped near rate
-    assert!(
-        (3..=6).contains(&total_sent),
-        "rate limiter should cap persistent gap near 4/s, got {total_sent} of 10"
+    assert_eq!(
+        total_sent, 4,
+        "4/s over 999 ms must send at 0, 333, 666, 999"
     );
     assert_eq!(sock.sent.len(), total_sent);
     // Session[10], Sequence[8 BE], RequestedMessageCount[2 BE], to server
@@ -88,9 +93,10 @@ fn gap_covered_by_two_earlier_requests_together_is_not_resent() {
         start_seq: 150,
         count: 50,
     };
+    let now = Instant::now();
     assert_eq!(
         emitter
-            .emit(&[lower, upper], SESSION, &mut sock)
+            .emit(&[lower, upper], SESSION, &mut sock, now)
             .expect("emit"),
         2
     );
@@ -100,7 +106,9 @@ fn gap_covered_by_two_earlier_requests_together_is_not_resent() {
         count: 100,
     };
     assert_eq!(
-        emitter.emit(&[spanning], SESSION, &mut sock).expect("emit"),
+        emitter
+            .emit(&[spanning], SESSION, &mut sock, now)
+            .expect("emit"),
         0,
         "range inside the two already requested must not be requested again"
     );
@@ -115,9 +123,16 @@ fn blocked_send_is_retried_on_next_emit() {
     };
     let mut emitter = GapRequestEmitter::new(server(), 4);
 
-    assert_eq!(emitter.emit(&[GAP], SESSION, &mut sock).expect("emit"), 0);
+    let now = Instant::now();
+    assert_eq!(
+        emitter.emit(&[GAP], SESSION, &mut sock, now).expect("emit"),
+        0
+    );
     sock.blocked = false;
-    // blocked attempt left no rate-limit mark, so immediate retry sends
-    assert_eq!(emitter.emit(&[GAP], SESSION, &mut sock).expect("emit"), 1);
+    // blocked attempt left no rate-limit mark, so retry at same instant sends
+    assert_eq!(
+        emitter.emit(&[GAP], SESSION, &mut sock, now).expect("emit"),
+        1
+    );
     assert_eq!(sock.sent.len(), 1);
 }
