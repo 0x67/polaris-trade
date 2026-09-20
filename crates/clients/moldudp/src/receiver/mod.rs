@@ -9,7 +9,6 @@
 //! [`Requester`] sends re-requests and reads retransmissions.
 //!
 //! ```no_run
-//! # use std::net::SocketAddr;
 //! # use client_moldudp::{MIN_LEG_POOL_CAPACITY, MoldUdpError, MoldUdpReceiver, MoldUdpReceiverConfig};
 //! # use smallvec::smallvec;
 //! # use transport_socket::{UdpConfig, UdpSocket};
@@ -18,14 +17,12 @@
 //! cfg.slab_count = MIN_LEG_POOL_CAPACITY.try_into()?;
 //! let leg = UdpSocket::bind(&cfg)?; // join multicast group here
 //! let requester = UdpSocket::bind(&UdpConfig::new("0.0.0.0:0".parse()?))?;
-//! let server: SocketAddr = "10.0.0.2:40000".parse()?;
 //! let mut rx = MoldUdpReceiver::from_legs(&MoldUdpReceiverConfig::default(), smallvec![leg])?
-//!     .with_requester(requester, server);
+//!     .with_requester(requester, "10.0.0.2:40000".parse()?);
 //! loop {
 //!     match rx.poll() {
 //!         Ok(Some(outcome)) => drop(outcome), // borrowed until next poll
-//!         // gap reported for this call only; keep polling
-//!         Ok(None) | Err(MoldUdpError::GapDetected) => {}
+//!         Ok(None) | Err(MoldUdpError::GapDetected) => {} // gap: this call only
 //!         Err(e) => return Err(e.into()),
 //!     }
 //! }
