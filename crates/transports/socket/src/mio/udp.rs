@@ -20,7 +20,7 @@ const NAME: &str = "mio-udp";
 
 /// UDP socket watched by [`ReadySet`](super::ReadySet) for read readiness.
 ///
-/// Every syscall goes through mio `try_io`, so Windows re-arms after drain.
+/// Every read and write goes through mio `try_io`, so Windows re-arms after drain.
 #[derive(Debug)]
 pub struct MioUdp {
     sock: ::mio::net::UdpSocket,

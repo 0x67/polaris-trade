@@ -4,9 +4,9 @@
 //! receive thread. Sources register by `&mut` and stay caller-owned; mio tracks
 //! OS socket, so registered socket may move into consumer.
 //!
-//! Every syscall on [`MioUdp`] and [`MioTcp`] goes through mio `try_io`: Windows
-//! re-arms interest only when would-block passes through it, so leg drained
-//! any other way would never be reported again.
+//! Every read and write on [`MioUdp`] and [`MioTcp`] goes through mio `try_io`:
+//! Windows re-arms interest only when would-block passes through it, so leg
+//! drained any other way would never be reported again.
 //!
 //! Multi-leg receive: bind, wrap, join and register each leg, move legs into
 //! consumer, loop `wait` and drain consumer until it reports nothing.
@@ -37,7 +37,7 @@ pub use ready::{Ready, ReadySet, ReadySource, ReadyToken};
 pub use tcp::MioTcp;
 pub use udp::MioUdp;
 
-// only this crate's socket types register, since each routes syscalls through `try_io`
+// only this crate's socket types register, since each routes reads and writes through `try_io`
 mod sealed {
     pub trait Sealed {
         type Source: ::mio::event::Source;

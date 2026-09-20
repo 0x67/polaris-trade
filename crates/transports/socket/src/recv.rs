@@ -56,6 +56,9 @@ impl AsRef<[u8]> for UdpFrame {
 /// syscall. Error met after frames were pushed waits in `deferred`, so frames
 /// never travel with `Err`. Pool empty with nothing pushed runs `peek`:
 /// queued datagram is `PoolExhausted`, idle socket `Ok(0)`.
+///
+/// `recv` sees slab bytes as `MaybeUninit` but must write only initialised
+/// bytes, never `MaybeUninit::uninit()`: slab is read as `[u8]` afterwards.
 pub(crate) fn burst(
     name: &'static str,
     pool: &VecPool,
@@ -175,9 +178,9 @@ pub(crate) fn stream(
 // slab bytes as socket2 receive buffer
 fn uninit(buf: &mut [u8]) -> &mut [MaybeUninit<u8>] {
     // SAFETY: `MaybeUninit<u8>` has `u8` layout; pointer and length come from
-    // live `&mut [u8]`, whose borrow returned slice inherits. socket2 receive
-    // writes only initialised bytes and never de-initialises, so memory stays
-    // valid `[u8]` for slab reads afterwards.
+    // live `&mut [u8]`, whose borrow returned slice inherits. Only `burst`
+    // calls this, and its contract bars `recv` from writing uninitialised
+    // bytes, so memory stays valid `[u8]` for slab reads afterwards.
     unsafe { slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<MaybeUninit<u8>>(), buf.len()) }
 }
 

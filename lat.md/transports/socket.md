@@ -16,13 +16,13 @@ Every platform-limited option defaults to off, and an explicit one the platform 
 
 [[crates/transports/socket/src/recv.rs#burst]] is the only datagram receive loop. Each socket type passes its recv call and a peek as closures, so the final would-block passes through that type's readiness wrapper.
 
-Datagrams land in `VecPool` slabs as [[crates/transports/socket/src/recv.rs#UdpFrame]], which carries the real sender address. With the pool empty and nothing pushed, the loop peeks: a queued datagram is `PoolExhausted`, an idle socket `Ok(0)`. An error met after frames were pushed waits in the socket's deferred slot and returns first on the next call. On Windows, `WSAEMSGSIZE` counts a truncated drop and `WSAECONNRESET` is skipped. TCP reads map through [[crates/transports/socket/src/recv.rs#stream]]: empty destination and would-block are `Ok(0)`, a zero-byte read is `PeerClosed`.
+Datagrams land in `VecPool` slabs as [[crates/transports/socket/src/recv.rs#UdpFrame]], which carries the real sender address. With the pool empty and nothing pushed, the loop peeks: a queued datagram is `PoolExhausted`, an idle socket `Ok(0)`. An error met after frames were pushed waits in the socket's deferred slot and returns first on the next call. On Windows, `WSAEMSGSIZE` counts a truncated drop and `WSAECONNRESET` is skipped. The recv closure sees the slab as `MaybeUninit` bytes but must never write uninitialised ones, since the slab is read as `[u8]` afterwards. TCP reads map through [[crates/transports/socket/src/recv.rs#stream]]: empty destination and would-block are `Ok(0)`, a zero-byte read is `PeerClosed`.
 
 ## Readiness
 
 tokio types receive through socket2 directly and confirm readiness with a peek inside tokio `try_io`, so a drained socket never reads as ready. mio types report through one caller-owned [[crates/transports/socket/src/mio/ready.rs#ReadySet]].
 
-[[crates/transports/socket/src/recv.rs#peek_ready]] uses socket2 `peek_sender`, which never fails on a large queued datagram. `ReadySet` borrows each `MioUdp` or `MioTcp` only to register it, so legs can move into a consumer; `wait` blocks and is never async. Readiness is edge-triggered: callers drain a reported source until it yields nothing. Every mio syscall runs inside `try_io`, which Windows needs to re-arm a drained leg.
+[[crates/transports/socket/src/recv.rs#peek_ready]] uses socket2 `peek_sender`, which never fails on a large queued datagram. `ReadySet` borrows each `MioUdp` or `MioTcp` only to register it, so legs can move into a consumer; `wait` blocks and is never async. Readiness is edge-triggered: callers drain a reported source until it yields nothing. Every mio read and write runs inside `try_io`, which Windows needs to re-arm a drained leg.
 
 ## Platform
 

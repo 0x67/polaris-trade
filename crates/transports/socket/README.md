@@ -87,7 +87,7 @@ loop {
 
 Readiness is edge-triggered on every OS. After `wait` reports a socket, drain it until it yields nothing (`recv_burst` or `recv_into` returns `Ok(0)`, `try_send` returns `Ok(0)`) before waiting again; data left behind may never be reported. Registration reports data already queued, so the first `wait` sees it.
 
-Every syscall on `MioUdp` and `MioTcp` goes through mio's `try_io`, which re-arms Windows interest when a drain reaches would-block.
+Every read and write on `MioUdp` and `MioTcp` goes through mio's `try_io`, which re-arms Windows interest when a drain reaches would-block.
 
 ## tokio readiness
 

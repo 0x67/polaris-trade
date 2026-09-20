@@ -18,7 +18,7 @@ const NAME: &str = "mio-tcp";
 /// TCP stream for runtime-free sessions: sync receive and partial write,
 /// watched by [`ReadySet`](super::ReadySet) for read and write readiness.
 ///
-/// Every syscall goes through mio `try_io`, so Windows re-arms after drain.
+/// Every read and write goes through mio `try_io`, so Windows re-arms after drain.
 #[derive(Debug)]
 pub struct MioTcp {
     sock: ::mio::net::TcpStream,
