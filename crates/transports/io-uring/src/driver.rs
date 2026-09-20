@@ -380,6 +380,7 @@ impl Driver for UringDriver {
     type Layer = L4;
     const BACKEND: &'static str = BACKEND;
 
+    #[inline]
     fn reap(&mut self, out: &mut FrameBatch<IndexFrame>) -> Result<Reap, TransportError> {
         self.mem.pool.drain_freed(&mut self.back);
         let completed = self.complete(out);
