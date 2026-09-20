@@ -193,6 +193,8 @@ struct Inner<T: DatagramRecv> {
     recovery_stream: u8,
     session: Option<[u8; 10]>,
     reassembler: SequenceReassembler<MessageView<T::Frame>>,
+    // one past highest sequence seen on any source; gaps open only beyond it
+    next_unseen: u64,
     gap_handler: GapRequestHandler,
     arbiter: Option<AbArbiter>,
     max_rerequests_per_gap_per_sec: u32,

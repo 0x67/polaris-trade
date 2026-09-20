@@ -121,11 +121,12 @@ impl<T: DatagramRecv> Inner<T> {
     }
 
     /// Record tail gap from heartbeat or end-of-session next-expected: anything
-    /// between own `expected_next` and server's `next_expected` was lost during
-    /// quiet traffic.
+    /// between highest sequence seen and server's `next_expected` was lost
+    /// during quiet traffic.
     fn note_tail_gap(&mut self, next_expected: u64) {
-        let expected = self.reassembler.expected_next();
+        let expected = self.next_unseen;
         if next_expected > expected {
+            self.next_unseen = next_expected;
             self.gap_handler
                 .record_missing_range(expected, next_expected);
             tracing::warn!(
@@ -168,6 +169,7 @@ impl<T: DatagramRecv> Inner<T> {
         // heartbeat and end of session carry next-expected, so any packet anchors
         if !self.seq_anchored {
             self.reassembler.reset_expected(header.sequence);
+            self.next_unseen = header.sequence;
             if let Some(arbiter) = self.arbiter.as_mut() {
                 arbiter.rebase(header.sequence);
             }
@@ -215,19 +217,24 @@ impl<T: DatagramRecv> Inner<T> {
             self.blocks.push((seq, offset, bytes.len()));
         }
 
-        // blocks are contiguous: only gap is jump to leading sequence, recorded
-        // once; A/B stages it so lagging leg gets its confirm window
-        let expected0 = self.reassembler.expected_next();
-        if header.sequence > expected0 {
+        // blocks are contiguous: only gap is jump past highest sequence seen,
+        // recorded once; A/B stages it so lagging leg gets its confirm window
+        let unseen = self.next_unseen;
+        if header.sequence > unseen {
             if let Some(arbiter) = self.arbiter.as_mut() {
-                arbiter.note_missing_range(expected0, header.sequence, Instant::now());
+                arbiter.note_missing_range(unseen, header.sequence, Instant::now());
             } else {
                 self.gap_handler
-                    .record_missing_range(expected0, header.sequence);
+                    .record_missing_range(unseen, header.sequence);
                 self.ready.push_back(ReadyItem::Gap);
                 record_gap();
             }
         }
+        self.next_unseen = unseen.max(
+            header
+                .sequence
+                .saturating_add(u64::from(header.message_count)),
+        );
 
         let mut backing = Backing::Owned(datagram);
         let mut inline = 0;

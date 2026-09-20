@@ -12,7 +12,7 @@ The caller builds each leg, joins its multicast group through `transport_core::M
 
 ## Receive
 
-`poll()` is synchronous and never waits. It returns `Ok(None)` only after every leg (and, while a gap is pending, the requester) returned nothing in that call, so a caller parked on `transport_socket::mio::ReadySet` may wait after `None`. A datagram whose leading sequence is the next expected drains inline, borrowed from the still-owned frame with no allocation; a datagram ahead of it promotes its frame to one `Arc` and buffers message views until the gap fills. `Err(GapDetected)` reports a gap for that call only; keep polling.
+`poll()` is synchronous and never waits. It returns `Ok(None)` only after every leg (and, while a gap is pending, the requester) returned nothing in that call, so a caller parked on `transport_socket::mio::ReadySet` may wait after `None`. A datagram whose leading sequence is the next expected drains inline, borrowed from the still-owned frame with no allocation; a datagram ahead of it promotes its frame to one `Arc` and buffers message views until the gap fills. `Err(GapDetected)` reports a gap for that call only; keep polling. A gap opens only past the highest sequence seen on any source, so datagrams landing behind an open gap never report it again.
 
 When the legs implement `AsyncReady` (for example `transport_socket::tokio::AsyncUdp`), `recv().await` returns a borrowed outcome and `recv_owned().await` an owned one (`Send + 'static`) that moves to another thread without copying.
 

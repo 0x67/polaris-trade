@@ -1,6 +1,7 @@
 //! Sequence anchoring and gap recording of `MoldUdpReceiver` on one leg (no
 //! arbiter): mid-session join, configured start, heartbeat and end-of-session
-//! tail gaps, one gap per packet. Gaps surface via `stats().pending_gaps`.
+//! tail gaps, one gap per packet, one gap per discontinuity. Gaps surface via
+//! `stats().pending_gaps`.
 
 pub mod support;
 
@@ -123,6 +124,39 @@ fn multi_block_ahead_records_one_gap_not_per_block() {
 
     assert!(matches!(rx.poll(), Ok(Some(MoldUdpOutcome::Frame(f))) if f.sequence() == 1));
     assert!(matches!(rx.poll(), Err(MoldUdpError::GapDetected)));
+    assert_eq!(
+        rx.stats().pending_gaps,
+        [GapRequest {
+            start_seq: 2,
+            count: 3
+        }]
+    );
+}
+
+#[test]
+fn gap_recorded_once_while_later_packets_keep_arriving() {
+    // 2..=4 lost; 6 and heartbeat 7 land behind open gap: already-seen 5 and 6
+    // must not rejoin it, and neither re-reports it
+    let mut rx = receiver(
+        &MoldUdpReceiverConfig::default(),
+        &[
+            mold_packet(&SESSION, 1, b"one"),
+            mold_packet(&SESSION, 5, b"five"),
+            mold_packet(&SESSION, 6, b"six"),
+            mold_heartbeat(&SESSION, 7),
+        ],
+    );
+
+    let mut gaps = 0;
+    loop {
+        match rx.poll() {
+            Ok(None) => break,
+            Ok(Some(_)) => {}
+            Err(MoldUdpError::GapDetected) => gaps += 1,
+            Err(e) => panic!("poll: {e}"),
+        }
+    }
+    assert_eq!(gaps, 1, "one discontinuity reported once");
     assert_eq!(
         rx.stats().pending_gaps,
         [GapRequest {

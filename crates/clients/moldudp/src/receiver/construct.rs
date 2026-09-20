@@ -56,12 +56,14 @@ impl<T: DatagramRecv> MoldUdpReceiver<T> {
                 arb.rebase(start);
             }
         }
+        let next_unseen = reassembler.expected_next();
         Ok(Self {
             inner: Inner {
                 legs,
                 recovery_stream,
                 session: None,
                 reassembler,
+                next_unseen,
                 gap_handler: GapRequestHandler::new(),
                 arbiter,
                 max_rerequests_per_gap_per_sec: cfg.max_rerequests_per_gap_per_sec,
