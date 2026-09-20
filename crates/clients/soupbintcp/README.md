@@ -17,11 +17,11 @@ SoupBinTCP 3.0 client: login handshake, sequenced and unsequenced framing, heart
 
 `start` queues the login request. Each `poll(now)` resumes pending partial writes, queues a client heartbeat when the send deadline passes (reported as `HeartbeatSent`), then receives and dispatches until it has a message or the socket is drained. It yields sequenced data as `SoupBinMessage::Data` and every lifecycle signal as `SoupBinMessage::Event`: `LoginAccepted`, `LoginRejected`, `HeartbeatReceived`, `HeartbeatSent`, `HeartbeatTimeout`, `EndOfSession`. `Ok(None)` means nothing happened.
 
-A pinned busy-poll loop calls `poll` again at once (see Usage). A parked loop registers the `MioTcp` in a `ReadySet` before `start`, then waits until `next_deadline()` whenever `poll` returns `None`.
+A pinned busy-poll loop calls `poll` again at once (see Usage). A parked loop registers the `MioTcp` in a `ReadySet` before `start`, then waits until `next_deadline()` whenever `poll` returns `None`. While writes sit queued under send backpressure, `next_deadline()` leaves out the heartbeat send deadline; writable readiness wakes the loop instead.
 
 `queue_unsequenced` (and async `send_unsequenced`) reject a payload over 65534 bytes with `FrameTooLarge`, queueing nothing: the `u16` length prefix counts the type byte.
 
-After logout, rejected login, heartbeat timeout or end of session the session is closed: `poll` flushes what is still queued (the logout request), then returns `Err(EndOfSession)`. A server closing without end of session is `Err(Transport(PeerClosed))`.
+After logout, rejected login, heartbeat timeout or end of session the session is closed: `poll` flushes what is still queued (the logout request), then returns `Err(EndOfSession)`. A login timeout is `Err(LoginTimeout)` and drops the unsent login, so the next `poll` returns `Err(EndOfSession)`. A server closing without end of session is `Err(Transport(PeerClosed))`.
 
 ## Async session
 

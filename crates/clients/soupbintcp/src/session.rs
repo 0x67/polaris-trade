@@ -73,7 +73,7 @@ impl Session {
     pub(crate) fn new(cfg: SoupBinClientConfig) -> Self {
         let now = Instant::now();
         Self {
-            state: ClientState::Disconnected,
+            state: ClientState::Authenticating,
             decode_buf: BytesMut::with_capacity(cfg.decode_buf_capacity),
             last_frame: BytesMut::new(),
             out: BytesMut::with_capacity(cfg.max_frame_size),
@@ -104,11 +104,15 @@ impl Session {
 
     pub(crate) fn next_deadline(&self) -> Instant {
         match self.state {
-            ClientState::Disconnected | ClientState::Authenticating => self.login_deadline,
+            ClientState::Authenticating => self.login_deadline,
             ClientState::Streaming | ClientState::Closed => {
-                let send_due = self.last_send + self.cfg.heartbeat_interval;
                 let recv_due = self.last_recv + self.cfg.heartbeat_timeout;
-                send_due.min(recv_due)
+                // queued bytes wake caller via writable readiness; stale `last_send` would spin it
+                if self.out.is_empty() {
+                    recv_due.min(self.last_send + self.cfg.heartbeat_interval)
+                } else {
+                    recv_due
+                }
             }
         }
     }
@@ -140,7 +144,6 @@ impl Session {
     pub(crate) fn queue_login(&mut self, now: Instant) -> Result<(), SoupBinError> {
         let payload = login_request(&self.cfg);
         self.queue(PacketType::LoginRequest, &payload)?;
-        self.state = ClientState::Authenticating;
         self.login_deadline = now + self.cfg.login_timeout;
         Ok(())
     }
@@ -164,6 +167,8 @@ impl Session {
 
     pub(crate) fn login_timed_out(&mut self) -> SoupBinError {
         self.state = ClientState::Closed;
+        // unsent login is abandoned: later polls report end of session, not retry it
+        self.out.clear();
         tracing::warn!(protocol = PROTOCOL, timeout = ?self.cfg.login_timeout, "soupbintcp login timeout");
         SoupBinError::LoginTimeout {
             timeout: self.cfg.login_timeout,
@@ -419,7 +424,7 @@ impl<T: StreamRecv + StreamTrySend> SoupBinClient<T> {
         match self.session.state {
             ClientState::Closed if self.session.out.is_empty() => Err(SoupBinError::EndOfSession),
             ClientState::Closed => Ok(None),
-            ClientState::Disconnected | ClientState::Authenticating => self.poll_login(now),
+            ClientState::Authenticating => self.poll_login(now),
             ClientState::Streaming => self.poll_stream(now),
         }
     }
@@ -561,7 +566,34 @@ fn parse_ascii_numeric(bytes: &[u8]) -> Result<u64, SoupBinError> {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::MaybeUninit;
+    use std::time::Duration;
+
+    use transport_core::{Transport, TransportError};
+
     use super::*;
+
+    /// Reads nothing and accepts no bytes: silent peer, full send buffer.
+    struct Stalled;
+
+    impl Transport for Stalled {
+        fn name(&self) -> &'static str {
+            "stalled"
+        }
+    }
+
+    // SAFETY: returns `Ok(0)`, claiming no bytes of `dst`.
+    unsafe impl StreamRecv for Stalled {
+        fn recv_into(&mut self, _dst: &mut [MaybeUninit<u8>]) -> Result<usize, TransportError> {
+            Ok(0)
+        }
+    }
+
+    impl StreamTrySend for Stalled {
+        fn try_send(&mut self, _buf: &[u8]) -> Result<usize, TransportError> {
+            Ok(0)
+        }
+    }
 
     #[test]
     fn queue_rejects_payload_past_length_prefix() {
@@ -582,6 +614,38 @@ mod tests {
             .queue(PacketType::UnsequencedData, &vec![7; max])
             .unwrap();
         assert_eq!(session.out[before.len()..][..2], [0xff, 0xff]);
+    }
+
+    #[test]
+    fn next_deadline_skips_heartbeat_while_writes_queued() {
+        let mut session = Session::new(SoupBinClientConfig {
+            heartbeat_interval: Duration::from_millis(1),
+            heartbeat_timeout: Duration::from_secs(30),
+            ..Default::default()
+        });
+        session.state = ClientState::Streaming;
+        // send backpressure: bytes stay queued past heartbeat interval
+        session.out.extend_from_slice(b"stuck");
+        assert_eq!(
+            session.next_deadline(),
+            session.last_recv + session.cfg.heartbeat_timeout
+        );
+    }
+
+    #[test]
+    fn login_timeout_drops_unsent_login() {
+        let cfg = SoupBinClientConfig::default();
+        let timeout = cfg.login_timeout;
+        let mut client = SoupBinClient::start(Stalled, cfg).unwrap();
+        let late = Instant::now() + timeout + Duration::from_secs(1);
+
+        let first = client.poll(late);
+        assert!(
+            matches!(first, Err(SoupBinError::LoginTimeout { .. })),
+            "{first:?}"
+        );
+        let next = client.poll(late);
+        assert!(matches!(next, Err(SoupBinError::EndOfSession)), "{next:?}");
     }
 
     #[test]

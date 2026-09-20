@@ -19,9 +19,7 @@ use crate::{
 /// Session lifecycle stage. Only `Streaming` yields data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientState {
-    /// Built, login not queued yet.
-    Disconnected,
-    /// Login sent, awaiting accept or reject.
+    /// Login queued, awaiting accept or reject.
     Authenticating,
     /// Logged in; sequenced data flows.
     Streaming,
@@ -66,8 +64,9 @@ impl<T> SoupBinClient<T> {
 
     /// Earliest instant caller must act on: login deadline while
     /// authenticating, else sooner of next client heartbeat due and
-    /// server-silence deadline. Parked loops wait until it when `poll` or
-    /// `recv` has nothing.
+    /// server-silence deadline. Heartbeat due is left out while writes are
+    /// queued: writable readiness wakes caller then. Parked loops wait until
+    /// it when `poll` or `recv` has nothing.
     pub fn next_deadline(&self) -> Instant {
         self.session.next_deadline()
     }
