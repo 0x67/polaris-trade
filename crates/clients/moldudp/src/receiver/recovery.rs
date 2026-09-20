@@ -5,24 +5,18 @@ use std::{future, net::SocketAddr, num::NonZeroUsize};
 
 use transport_core::{AsyncReady, DatagramRecv, DatagramSend, FrameBatch, TransportError};
 
-use crate::{
-    error::MoldUdpError,
-    gap::{GapRequestEmitter, GapRequestHandler},
-};
+use crate::gap::{GapRequestEmitter, GapRequestHandler};
 
 // only this crate's recovery modes plug into receiver
 pub(crate) mod sealed {
     use transport_core::TransportError;
 
-    use crate::{error::MoldUdpError, gap::GapRequestHandler};
+    use crate::gap::GapRequestHandler;
 
     pub trait Sealed {
-        /// Send re-requests for `gaps` not rate-limited now; reads clock.
-        fn send_due(
-            &mut self,
-            session: [u8; 10],
-            gaps: &GapRequestHandler,
-        ) -> Result<(), MoldUdpError>;
+        /// Send re-requests for `gaps` not rate-limited now; reads clock. Send
+        /// failure is logged, never returned, so it can't stall leg receive.
+        fn send_due(&mut self, session: [u8; 10], gaps: &GapRequestHandler);
 
         /// Reap one burst, handing each datagram's bytes to `copy` before its
         /// buffer returns to pool. Returns whether anything arrived.
@@ -47,9 +41,7 @@ pub trait AsyncRecovery: Recovery + sealed::SealedReady {}
 pub struct NoRecovery;
 
 impl sealed::Sealed for NoRecovery {
-    fn send_due(&mut self, _: [u8; 10], _: &GapRequestHandler) -> Result<(), MoldUdpError> {
-        Ok(())
-    }
+    fn send_due(&mut self, _: [u8; 10], _: &GapRequestHandler) {}
 
     fn reap(&mut self, _: impl FnMut(&[u8])) -> Result<bool, TransportError> {
         Ok(false)
@@ -90,18 +82,20 @@ impl<Q: DatagramRecv> Requester<Q> {
 }
 
 impl<Q: DatagramRecv + DatagramSend> sealed::Sealed for Requester<Q> {
-    fn send_due(
-        &mut self,
-        session: [u8; 10],
-        gaps: &GapRequestHandler,
-    ) -> Result<(), MoldUdpError> {
-        let sent = self
+    fn send_due(&mut self, session: [u8; 10], gaps: &GapRequestHandler) {
+        match self
             .emitter
-            .emit(&gaps.pending_gaps(), session, &mut self.sock)?;
-        if sent > 0 {
-            tracing::debug!(sent, "gap re-requests sent");
+            .emit(&gaps.pending_gaps(), session, &mut self.sock)
+        {
+            Ok(0) => {}
+            Ok(sent) => tracing::debug!(sent, "gap re-requests sent"),
+            // emitter already backed failed range off one interval
+            Err(error) => tracing::warn!(
+                server = %self.emitter.server_addr,
+                %error,
+                "gap re-request send failed on requester socket; retrying next interval"
+            ),
         }
-        Ok(())
     }
 
     fn reap(&mut self, mut copy: impl FnMut(&[u8])) -> Result<bool, TransportError> {

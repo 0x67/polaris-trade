@@ -13,9 +13,8 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
     ///
     /// # Errors
     ///
-    /// [`MoldUdpError::GapDetected`] for this call only: gap recorded, keep
-    /// calling. Session mismatch, malformed packet, reorder overflow and
-    /// transport failure surface as own variants.
+    /// [`MoldUdpError::GapDetected`] for this call only: keep calling. Other
+    /// variants are leg or packet failures; failed re-request send is `warn` log.
     pub fn poll(&mut self) -> Result<Option<MoldUdpOutcome<'_, T::Frame>>, MoldUdpError> {
         self.inner.retire_current();
         self.pump()?;
@@ -32,7 +31,7 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
         if inner.gap_handler.has_pending()
             && let Some(session) = inner.session
         {
-            self.recovery.send_due(session, &inner.gap_handler)?;
+            self.recovery.send_due(session, &inner.gap_handler);
         }
         loop {
             if !inner.ready.is_empty() {

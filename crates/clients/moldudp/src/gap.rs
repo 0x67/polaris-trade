@@ -125,7 +125,8 @@ impl GapRequestEmitter {
     /// Send Request Packet from `sock` for each gap not covered by range
     /// requested within last `1 / max_per_gap_per_sec` s, returning how many
     /// were sent. Full socket buffer stops this round without marking rest
-    /// requested, so next call retries them.
+    /// requested, so next call retries them. Failed send is marked like sent
+    /// one, so broken socket costs one attempt per interval, not one per call.
     ///
     /// # Errors
     ///
@@ -152,16 +153,14 @@ impl GapRequestEmitter {
                 continue;
             }
             let packet = encode_request_packet(session, gap.start_seq, gap.count);
-            match sock.send_to(&packet, self.server_addr) {
-                Ok(_) => {}
-                Err(TransportError::Io { error, .. })
-                    if error.kind() == io::ErrorKind::WouldBlock =>
-                {
-                    break;
-                }
-                Err(error) => return Err(error.into()),
+            let result = sock.send_to(&packet, self.server_addr);
+            if let Err(TransportError::Io { error, .. }) = &result
+                && error.kind() == io::ErrorKind::WouldBlock
+            {
+                break;
             }
             self.requested.push((gap.start_seq, end, now));
+            result?;
             sent += 1;
         }
         Ok(sent)

@@ -20,7 +20,7 @@ When the legs implement `AsyncReady` (for example `transport_socket::tokio::Asyn
 
 Recovery is opt-in type state. `with_requester(socket, server)` attaches a unicast socket (any `DatagramRecv + DatagramSend`, typically `transport_socket::UdpSocket`). `poll` then sends rate-limited Request Packets from it for pending gaps and reads it while any gap is pending, because a MoldUDP64 server unicasts the retransmission back to the request's source address and port. A retransmitted datagram is copied into receiver memory and its buffer returns to the requester's pool at once, so the requester's frame type need not match the legs'. Retransmitted messages report stream id equal to the leg count.
 
-Re-requests go out only from `poll`: while gaps are pending, a parked caller waits with a timeout (and registers the requester in the same `ReadySet`). Any one missing range is requested at most `max_rerequests_per_gap_per_sec` times per second: a gap that lies inside a range requested within the last interval is skipped, so retransmissions filling a gap from its head trigger no further request. A send that meets a full socket buffer is retried on a later call.
+Re-requests go out only from `poll`: while gaps are pending, a parked caller waits with a timeout (and registers the requester in the same `ReadySet`). Any one missing range is requested at most `max_rerequests_per_gap_per_sec` times per second: a gap that lies inside a range requested within the last interval is skipped, so retransmissions filling a gap from its head trigger no further request. A send that meets a full socket buffer is retried on a later call. A send that fails for any other reason never blocks receive: it is logged at `warn`, the range backs off one interval like a sent one, and the legs keep being read.
 
 On a kernel-bypass L2 leg the requester is still a kernel UDP socket. An AF_XDP program that redirects the feed's queue would capture a reply landing on that queue before the requester sees it: steer re-request replies to another queue (a flow rule on the requester's port), or bind the requester to the feed's destination port with the decap `dst_ip` filter unset, so the unicast reply passes through the leg.
 
@@ -78,7 +78,7 @@ Tests run over loopback sockets and the in-process `transport_core` mock driver;
 
 ## Logging
 
-This crate emits [`tracing`](https://docs.rs/tracing) events at state transitions only (gap detected, re-requests sent), never per message. Install any subscriber to see them; filter with `RUST_LOG=client_moldudp=debug`.
+This crate emits [`tracing`](https://docs.rs/tracing) events at state transitions only (gap detected and re-request send failed at `warn`, re-requests sent at `debug`), never per message. Install any subscriber to see them; filter with `RUST_LOG=client_moldudp=debug`.
 
 ## License
 
