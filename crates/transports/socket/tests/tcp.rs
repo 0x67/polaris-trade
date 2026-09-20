@@ -218,6 +218,11 @@ fn mio_partial_write_resumes_on_writable_readiness() {
     cfg.nodelay = true;
     let mut tcp = MioTcp::connect(&cfg).expect("connect");
     let (peer, _) = listener.accept().expect("accept");
+    // Winsock does not carry the listener's buffer onto the accepted socket,
+    // so pin that one too: the sender has only a 4 KiB send buffer and cannot
+    // outrun the window update before it stalls.
+    peer.set_recv_buffer_size(64 * 1024)
+        .expect("peer recv buffer");
     let mut peer = std::net::TcpStream::from(peer);
     let data: Vec<u8> = (0..=250).cycle().take(LEN).collect();
 
