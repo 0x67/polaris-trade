@@ -38,18 +38,30 @@ impl GapRequestHandler {
         Self::default()
     }
 
-    /// Record `[start, end)` as missing. `start >= end` is no-op.
+    /// Record `[start, end)` as missing, absorbing every tracked range it
+    /// touches or overlaps, so entries stay disjoint and non-adjacent.
+    /// `start >= end` is no-op.
     pub fn record_missing_range(&mut self, start: u64, end_exclusive: u64) {
         if start >= end_exclusive {
             return;
         }
-        let merged_end = self
-            .gaps
-            .get(&start)
-            .copied()
-            .unwrap_or(start)
-            .max(end_exclusive);
-        self.gaps.insert(start, merged_end);
+        let (mut start, mut end) = (start, end_exclusive);
+        // predecessor ending at or past `start` extends new range leftwards
+        if let Some((&prev_start, &prev_end)) = self.gaps.range(..start).next_back()
+            && prev_end >= start
+        {
+            start = prev_start;
+            end = end.max(prev_end);
+        }
+        // drop every range from `start` on that still touches, widening as it goes
+        while let Some((&next_start, &next_end)) = self.gaps.range(start..).next() {
+            if next_start > end {
+                break;
+            }
+            end = end.max(next_end);
+            self.gaps.remove(&next_start);
+        }
+        self.gaps.insert(start, end);
     }
 
     /// Record single missing sequence number.
@@ -83,6 +95,15 @@ impl GapRequestHandler {
     /// Expand tracked ranges into re-request-sized chunks (`count` fits `u16`).
     pub fn pending_gaps(&self) -> Vec<GapRequest> {
         let mut out = Vec::new();
+        self.pending_gaps_into(&mut out);
+        out
+    }
+
+    /// [`pending_gaps`](Self::pending_gaps) into caller's buffer, replacing its
+    /// contents. Re-request path calls this every poll while a gap is open, so
+    /// it reuses one allocation instead of building a fresh `Vec`.
+    pub fn pending_gaps_into(&self, out: &mut Vec<GapRequest>) {
+        out.clear();
         for (&start, &end) in &self.gaps {
             let mut cur = start;
             while cur < end {
@@ -94,7 +115,6 @@ impl GapRequestHandler {
                 cur += u64::from(count);
             }
         }
-        out
     }
 }
 
@@ -106,7 +126,7 @@ impl GapRequestHandler {
 pub struct GapRequestEmitter {
     /// Re-request server every packet goes to.
     pub server_addr: SocketAddr,
-    // `[start, end)` requested within last interval, with send time
+    // disjoint `[start, end)` requested within last interval, newest send time
     requested: Vec<(u64, u64, Instant)>,
     max_per_gap_per_sec: u32,
 }
@@ -159,11 +179,26 @@ impl GapRequestEmitter {
             {
                 break;
             }
-            self.requested.push((gap.start_seq, end, now));
+            self.mark_requested(gap.start_seq, end, now);
             result?;
             sent += 1;
         }
         Ok(sent)
+    }
+
+    // absorb every remembered range `[start, end)` touches, keeping `requested`
+    // disjoint and non-adjacent so one entry alone can cover a later chunk
+    fn mark_requested(&mut self, start: u64, end: u64, now: Instant) {
+        let (mut start, mut end) = (start, end);
+        self.requested.retain(|&(s, e, _)| {
+            if s > end || start > e {
+                return true;
+            }
+            start = start.min(s);
+            end = end.max(e);
+            false
+        });
+        self.requested.push((start, end, now));
     }
 }
 

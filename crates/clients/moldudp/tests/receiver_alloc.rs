@@ -66,6 +66,49 @@ fn poll_many_message_datagrams_is_allocation_free() {
     );
 }
 
+/// Recovery builds its re-request state once; a poll that finds nothing while
+/// the gap stays open must touch no allocator, however long recovery lasts.
+#[test]
+fn poll_with_gap_open_is_allocation_free() {
+    // 1 request/s/gap: the whole measured loop sits inside one interval
+    let cfg = MoldUdpReceiverConfig {
+        max_rerequests_per_gap_per_sec: 1,
+        ..MoldUdpReceiverConfig::default()
+    };
+    let mut leg = support::mock_leg();
+    leg.driver_mut().inject(&mold_packet(&SESSION, 1, b"one"));
+    leg.driver_mut().inject(&mold_packet(&SESSION, 5, b"five"));
+    let mut rx = MoldUdpReceiver::from_legs(&cfg, smallvec![leg])
+        .expect("receiver")
+        .with_requester(
+            support::IdleRequester,
+            "127.0.0.1:9".parse().expect("server addr"),
+        );
+
+    // warm up: drain both datagrams, open the gap, send its one re-request
+    let mut warmup = 0;
+    while warmup < 8 {
+        match rx.poll() {
+            Ok(_) | Err(MoldUdpError::GapDetected) => warmup += 1,
+            other => panic!("unexpected poll result {other:?}"),
+        }
+    }
+    assert!(!rx.stats().pending_gaps.is_empty(), "gap at 2 never opened");
+
+    let info = allocation_counter::measure(|| {
+        for _ in 0..10 {
+            match rx.poll() {
+                Ok(None) => {}
+                other => panic!("expected idle poll, got {other:?}"),
+            }
+        }
+    });
+    assert_eq!(
+        info.count_total, 0,
+        "polling with a gap open must not allocate"
+    );
+}
+
 /// Gap tracking (`GapRequestHandler`'s `BTreeMap`) allocates too, apart from
 /// `Arc` promotion under test. So compare single-message out-of-order datagram
 /// with same-shaped datagram carrying 3 messages: both record same one gap,

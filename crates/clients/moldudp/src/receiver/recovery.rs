@@ -5,7 +5,7 @@ use std::{future, net::SocketAddr, num::NonZeroUsize};
 
 use transport_core::{AsyncReady, DatagramRecv, DatagramSend, FrameBatch, TransportError};
 
-use crate::gap::{GapRequestEmitter, GapRequestHandler};
+use crate::gap::{GapRequest, GapRequestEmitter, GapRequestHandler};
 
 // only this crate's recovery modes plug into receiver
 pub(crate) mod sealed {
@@ -64,6 +64,8 @@ pub struct Requester<Q: DatagramRecv> {
     emitter: GapRequestEmitter,
     // requester frames are copied and dropped at once, never held
     scratch: FrameBatch<Q::Frame>,
+    // refilled every send, so open gap costs no allocation per poll
+    due: Vec<GapRequest>,
 }
 
 impl<Q: DatagramRecv> Requester<Q> {
@@ -77,16 +79,15 @@ impl<Q: DatagramRecv> Requester<Q> {
             sock,
             emitter: GapRequestEmitter::new(server, max_per_gap_per_sec),
             scratch: FrameBatch::with_capacity(burst),
+            due: Vec::new(),
         }
     }
 }
 
 impl<Q: DatagramRecv + DatagramSend> sealed::Sealed for Requester<Q> {
     fn send_due(&mut self, session: [u8; 10], gaps: &GapRequestHandler) {
-        match self
-            .emitter
-            .emit(&gaps.pending_gaps(), session, &mut self.sock)
-        {
+        gaps.pending_gaps_into(&mut self.due);
+        match self.emitter.emit(&self.due, session, &mut self.sock) {
             Ok(0) => {}
             Ok(sent) => tracing::debug!(sent, "gap re-requests sent"),
             // emitter already backed failed range off one interval

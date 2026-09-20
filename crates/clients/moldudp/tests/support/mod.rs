@@ -10,7 +10,7 @@ use client_moldudp::{
     MIN_LEG_POOL_CAPACITY, MoldUdpError, MoldUdpOutcome, MoldUdpReceiver, Recovery,
 };
 use transport_core::{
-    DatagramRecv,
+    DatagramRecv, DatagramSend, FrameBatch, PoolStats, Transport, TransportError,
     bypass::{BypassTransport, L4, MockDriver},
     pool::IndexPool,
 };
@@ -152,4 +152,34 @@ pub fn drain<T: DatagramRecv, R: Recovery>(rx: &mut MoldUdpReceiver<T, R>, n: us
 /// Sequences of `got`, in order.
 pub fn sequences(got: &[Got]) -> Vec<u64> {
     got.iter().map(|g| g.sequence).collect()
+}
+
+/// Requester socket that accepts every re-request and never has a reply.
+pub struct IdleRequester;
+
+impl Transport for IdleRequester {
+    fn name(&self) -> &'static str {
+        "idle-requester"
+    }
+}
+
+impl DatagramRecv for IdleRequester {
+    type Frame = Vec<u8>;
+
+    fn recv_burst(&mut self, _: &mut FrameBatch<Vec<u8>>) -> Result<usize, TransportError> {
+        Ok(0)
+    }
+
+    fn pool_stats(&self) -> PoolStats {
+        PoolStats {
+            capacity: 1,
+            in_use: 0,
+        }
+    }
+}
+
+impl DatagramSend for IdleRequester {
+    fn send_to(&mut self, buf: &[u8], _: SocketAddr) -> Result<usize, TransportError> {
+        Ok(buf.len())
+    }
 }

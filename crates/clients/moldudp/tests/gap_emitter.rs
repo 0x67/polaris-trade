@@ -70,6 +70,43 @@ fn rate_limits_repeated_requests_for_the_same_gap() {
     assert_eq!(sock.sent[0], (packet, server()));
 }
 
+/// A gap past `u16::MAX` messages splits into chunks, so a later chunk can sit
+/// inside two earlier requests taken together and inside neither alone.
+#[test]
+fn gap_covered_by_two_earlier_requests_together_is_not_resent() {
+    let mut sock = Recorder {
+        sent: Vec::new(),
+        blocked: false,
+    };
+    // 1 request/s/gap: whole test runs inside one interval
+    let mut emitter = GapRequestEmitter::new(server(), 1);
+    let lower = GapRequest {
+        start_seq: 100,
+        count: 50,
+    };
+    let upper = GapRequest {
+        start_seq: 150,
+        count: 50,
+    };
+    assert_eq!(
+        emitter
+            .emit(&[lower, upper], SESSION, &mut sock)
+            .expect("emit"),
+        2
+    );
+
+    let spanning = GapRequest {
+        start_seq: 100,
+        count: 100,
+    };
+    assert_eq!(
+        emitter.emit(&[spanning], SESSION, &mut sock).expect("emit"),
+        0,
+        "range inside the two already requested must not be requested again"
+    );
+    assert_eq!(sock.sent.len(), 2);
+}
+
 #[test]
 fn blocked_send_is_retried_on_next_emit() {
     let mut sock = Recorder {
