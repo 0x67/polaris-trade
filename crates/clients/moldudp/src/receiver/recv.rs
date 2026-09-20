@@ -11,7 +11,8 @@ impl<T: DatagramRecv, R: Recovery> MoldUdpReceiver<T, R> {
     /// Next data frame or control event, borrowed until next call. Never waits.
     /// `Ok(None)` only after every leg (and requester, while gap pending)
     /// returned nothing this call, so parked caller may wait; with gaps pending,
-    /// wait with timeout, since re-requests go out only from `poll`.
+    /// wait with timeout, since re-requests go out only from `poll`. A/B gap
+    /// candidate confirms only when later datagram lands after confirm window.
     ///
     /// # Errors
     ///

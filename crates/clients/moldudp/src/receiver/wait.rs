@@ -10,7 +10,8 @@ use crate::error::MoldUdpError;
 impl<T: DatagramRecv + AsyncReady, R: AsyncRecovery> MoldUdpReceiver<T, R> {
     /// Next data frame or control event, borrowed until next call. Spins
     /// [`poll`](Self::poll)'s path, then waits on every leg and, while gap is
-    /// pending, requester.
+    /// pending, requester. No timer: pending gap is re-requested again only on
+    /// next wake, so on quiet feed wrap call in timeout (cancel-safe) and repeat.
     ///
     /// # Errors
     ///
