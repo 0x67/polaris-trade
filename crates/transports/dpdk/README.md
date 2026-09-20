@@ -1,6 +1,6 @@
-# transport_dpdk
+# transport-dpdk
 
-DPDK poll-mode receive for market-data feeds, built on the traits in `transport_core`. `DpdkL2` polls one receive queue that the caller has already configured and yields whole Ethernet frames, each owning its mbuf. Wrap it in `transport_core::decap::UdpDecap` to feed a datagram consumer such as MoldUDP64.
+DPDK poll-mode receive for market-data feeds, built on the traits in `transport-core`. `DpdkL2` polls one receive queue that the caller has already configured and yields whole Ethernet frames, each owning its mbuf. Wrap it in `transport_core::decap::UdpDecap` to feed a datagram consumer such as MoldUDP64.
 
 ## What each feature gives
 
@@ -61,10 +61,10 @@ Without `driver-dpdk` the build script does nothing. With it, `build.rs` require
 
 ## Tests
 
-`cargo nextest run -p transport_dpdk` runs the burst bookkeeping test on any OS. With `--features driver-dpdk` on Linux, `tests/real_dpdk.rs` checks that the test binary links and that a null mempool is rejected; its two ignored tests start a real EAL (`--no-huge`, no PCI, two `net_pcap` vdevs replaying pcap files written by the test) and check that payloads reach a `UdpDecap` consumer byte for byte, and that a burst is bounded by the caller's batch, then by free mbufs, and an exhausted mempool raises `no_buffer` and recovers after frames are dropped on another thread:
+`cargo nextest run -p transport-dpdk` runs the burst bookkeeping test on any OS. With `--features driver-dpdk` on Linux, `tests/real_dpdk.rs` checks that the test binary links and that a null mempool is rejected; its two ignored tests start a real EAL (`--no-huge`, no PCI, two `net_pcap` vdevs replaying pcap files written by the test) and check that payloads reach a `UdpDecap` consumer byte for byte, and that a burst is bounded by the caller's batch, then by free mbufs, and an exhausted mempool raises `no_buffer` and recovers after frames are dropped on another thread:
 
 ```bash
-cargo nextest run -p transport_dpdk --features driver-dpdk --run-ignored ignored-only
+cargo nextest run -p transport-dpdk --features driver-dpdk --run-ignored ignored-only
 ```
 
 They need the DPDK pcap PMD (Debian: `librte-net-pcap25`, pulled in by `libdpdk-dev`) but no hugepages, and pass in a Docker container run without `--privileged`.

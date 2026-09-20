@@ -1,4 +1,4 @@
-# client_moldudp
+# client-moldudp
 
 MoldUDP64 client: wire codec, sequence reassembler, gap re-requests and A/B arbitration, over caller-built legs of any datagram transport.
 
@@ -44,6 +44,6 @@ What changed from the previous receiver, which built its own sockets and could n
 
 ## Tests
 
-Tests run over loopback sockets and the `transport_core` mock driver; none needs privileges.
+Tests run over loopback sockets and the `transport-core` mock driver; none needs privileges.
 
 `gap_recovery.rs` answers re-requests from a real UDP server that sends missing packets to the request's source: `socket_leg_gap_filled_from_requester` and `bypass_leg_gap_filled_from_socket_requester`, each with a one-slab socket requester (so a second retransmission lands only if the first slab went back), assert the server saw exactly one request for the two-packet gap. `requester_send_failure.rs` breaks the requester's send and checks legs keep delivering with one attempt per interval. `receiver_alloc.rs` (`poll_in_order_burst_is_allocation_free`, `poll_many_message_datagrams_is_allocation_free`, `poll_with_gap_open_is_allocation_free`) proves `poll` allocates nothing in order, including 20-message datagrams, nor while a gap stays open; `gap_tracing.rs` expects one `warn` per discontinuity at each detection site; `receiver_recovery.rs` also checks a gap is reported once while later packets land behind it; `e2e_ab.rs` parks two `MioUdp` legs on one `ReadySet`; `receiver_pool_config.rs` covers `PoolTooSmall` and zero legs; `loopback.rs` and `receiver_owned.rs` cover async receive; the rest cover anchoring, tail gaps, session lock, arbiter, reassembler, emitter and wire codec. Fuzz targets for the wire codec are under [[clients#Fuzzing]].

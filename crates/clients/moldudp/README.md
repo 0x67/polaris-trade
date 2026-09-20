@@ -1,10 +1,10 @@
-# client_moldudp
+# client-moldudp
 
 MoldUDP64 market-data client: wire codec, sequence reassembler, gap re-request, and A/B line arbitration behind one receiver over any datagram transport.
 
 ## What it is
 
-`MoldUdpReceiver<T, R>` runs the MoldUDP64 downstream receive path over legs of any `transport_core::DatagramRecv`. It parses the 20-byte downstream header, iterates message blocks straight out of the datagram, reorders by sequence, tracks gaps, and (for redundant A/B feeds) arbitrates first arrival. The same receiver runs on `transport_socket` sockets or on a kernel-bypass backend: the receiver never binds or joins anything itself.
+`MoldUdpReceiver<T, R>` runs the MoldUDP64 downstream receive path over legs of any `transport_core::DatagramRecv`. It parses the 20-byte downstream header, iterates message blocks straight out of the datagram, reorders by sequence, tracks gaps, and (for redundant A/B feeds) arbitrates first arrival. The same receiver runs on `transport-socket` sockets or on a kernel-bypass backend: the receiver never binds or joins anything itself.
 
 ## Legs
 
@@ -53,7 +53,7 @@ loop {
 }
 ```
 
-The legs can be any `DatagramRecv`: `transport_socket` types on Linux, macOS and Windows, `transport_io_uring::IoUringUdp`, or `transport_core::decap::UdpDecap` over `transport_afxdp` or `transport_dpdk`. The receiver needs no privilege of its own; each leg brings its own platform and privilege requirements.
+The legs can be any `DatagramRecv`: `transport-socket` types on Linux, macOS and Windows, `transport_io_uring::IoUringUdp`, or `transport_core::decap::UdpDecap` over `transport-afxdp` or `transport-dpdk`. The receiver needs no privilege of its own; each leg brings its own platform and privilege requirements.
 
 ## Config
 
@@ -61,7 +61,7 @@ The legs can be any `DatagramRecv`: `transport_socket` types on Linux, macOS and
 
 ## Features
 
-- `observability` (off by default): message and gap counters through `observability-core`, and `transport_core`'s receive metrics.
+- `observability` (off by default): message and gap counters through `observability-core`, and `transport-core`'s receive metrics.
 
 ## Protocol specification
 
@@ -72,11 +72,11 @@ Spec documents are not redistributed in this repository.
 ## Building and testing
 
 ```bash
-cargo nextest run -p client_moldudp
-cargo nextest run -p client_moldudp --features observability
+cargo nextest run -p client-moldudp
+cargo nextest run -p client-moldudp --features observability
 ```
 
-Tests run over loopback sockets and the in-process `transport_core` mock driver; the gap test answers re-requests from a real UDP server.
+Tests run over loopback sockets and the in-process `transport-core` mock driver; the gap test answers re-requests from a real UDP server.
 
 ## Logging
 

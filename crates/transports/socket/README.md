@@ -1,6 +1,6 @@
-# transport_socket
+# transport-socket
 
-Kernel socket transports for market-data feeds, built on socket2 and the traits in `transport_core`. One crate serves sync busy-poll loops, tokio sessions and runtime-free mio sessions, over one receive loop and one socket-option layer, on Linux, macOS and Windows.
+Kernel socket transports for market-data feeds, built on socket2 and the traits in `transport-core`. One crate serves sync busy-poll loops, tokio sessions and runtime-free mio sessions, over one receive loop and one socket-option layer, on Linux, macOS and Windows.
 
 ## What each feature gives
 
@@ -110,10 +110,10 @@ A datagram longer than a slab is dropped whole on every OS, counted as `truncate
 ## Tests
 
 ```bash
-cargo nextest run -p transport_socket --features tokio,mio
+cargo nextest run -p transport-socket --features tokio,mio
 ```
 
-Every type passes the `transport_core` conformance suite on loopback, on all three systems; the readiness regressions, option readback, partial writes and the Winsock cases have their own tests.
+Every type passes the `transport-core` conformance suite on loopback, on all three systems; the readiness regressions, option readback, partial writes and the Winsock cases have their own tests.
 
 ## License
 

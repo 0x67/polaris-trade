@@ -1,6 +1,6 @@
-# transport_afxdp
+# transport-afxdp
 
-Linux AF_XDP receive for market-data feeds, over a raw XSK driver written against the kernel uapi with `libc`: no libbpf, no libxdp, no C toolchain. It loads its own small XDP program, which redirects IPv4 UDP frames and leaves everything else to the kernel, or plugs into an externally loaded one, and hands whole Ethernet frames to `transport_core`'s decap adapter for datagram consumers.
+Linux AF_XDP receive for market-data feeds, over a raw XSK driver written against the kernel uapi with `libc`: no libbpf, no libxdp, no C toolchain. It loads its own small XDP program, which redirects IPv4 UDP frames and leaves everything else to the kernel, or plugs into an externally loaded one, and hands whole Ethernet frames to `transport-core`'s decap adapter for datagram consumers.
 
 ## Types
 
@@ -22,7 +22,7 @@ let mut feed = UdpDecap::new(AfxdpL2::bind(&cfg)?, 26_400, None, NonZeroUsize::n
 feed.join_multicast("233.54.12.1".parse()?, MulticastInterface::default())?;
 ```
 
-`feed` is a `DatagramRecv` of UDP payloads to port 26400, ready for a consumer such as `client_moldudp`.
+`feed` is a `DatagramRecv` of UDP payloads to port 26400, ready for a consumer such as `client-moldudp`.
 
 Config fields: `frames` (UMEM frames and ring entries, power of two, default 4096), `frame_size` (power of two, 2048 up to the page size, default 2048), `headroom` (bytes ahead of the kernel's 256-byte XDP headroom, default 0), `zero_copy` (default off), `redirect` (default `Builtin { mode: Skb }`).
 

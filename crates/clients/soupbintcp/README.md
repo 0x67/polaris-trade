@@ -1,4 +1,4 @@
-# client_soupbintcp
+# client-soupbintcp
 
 SoupBinTCP 3.0 client: login handshake, sequenced and unsequenced framing, heartbeats both ways, and an optional compressed variant, over any stream transport, with or without an async runtime.
 
@@ -69,7 +69,7 @@ loop {
 
 `SoupBinClientConfig` is serde (JSON or TOML) and every field defaults: login `username`, `password`, `requested_session` (empty joins the current one) and `requested_sequence_number` (1 replays from the start, 0 starts at the newest message; on reconnect pass `next_expected_sequence()`), `login_timeout` (30 s), `heartbeat_interval` (1 s), `heartbeat_timeout` (15 s), `max_frame_size` and `decode_buf_capacity` (64 KiB each). Durations are humantime strings such as `"30s"`.
 
-The client needs no privilege and makes no socket call of its own; it runs wherever its transport does (`transport_socket` covers Linux, macOS and Windows).
+The client needs no privilege and makes no socket call of its own; it runs wherever its transport does (`transport-socket` covers Linux, macOS and Windows).
 
 ## Design
 
@@ -91,8 +91,8 @@ Spec documents are not redistributed in this repository.
 ## Building and testing
 
 ```bash
-cargo nextest run -p client_soupbintcp
-cargo nextest run -p client_soupbintcp --features tokio,compressed,observability
+cargo nextest run -p client-soupbintcp
+cargo nextest run -p client-soupbintcp --features tokio,compressed,observability
 ```
 
 One protocol table (login accepted and rejected, login timeout, sequenced data, a burst of about 64 KiB in one server write, heartbeats both ways, heartbeat timeout, partial writes, logout, end of session, peer close) runs through the sync API over `MioTcp` and through the async API over tokio `TcpStream`, against a local mock server.

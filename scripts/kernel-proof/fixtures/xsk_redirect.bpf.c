@@ -1,7 +1,7 @@
 /*
  * Stand-in for operator's external XDP program: pinned-mode proof loads it with
  * bpftool (maps pinned by name, so `xsks_map` lands in pinmaps dir) and attaches
- * it; `transport_afxdp` then inserts its socket into `xsks_map`.
+ * it; `transport-afxdp` then inserts its socket into `xsks_map`.
  * Build: clang -O2 -g -target bpf -I/usr/include/$(uname -m)-linux-gnu -c
  * (`-g` emits BTF, which libbpf needs for `.maps` definitions).
  */

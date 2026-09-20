@@ -30,7 +30,7 @@ pre-commit:
       glob: "*.rs"
       # feature list grows with workspace members, must match CI features job.
       # Never every feature: DPDK driver feature cannot build on macOS.
-      run: cargo clippy --workspace --all-targets --features transport_core/testing,transport_core/observability,transport_socket/tokio,transport_socket/mio,transport_socket/observability,transport_io_uring/observability,transport_afxdp/observability,transport_dpdk/observability,client_moldudp/observability,client_soupbintcp/tokio,client_soupbintcp/compressed,client_soupbintcp/observability -- -D warnings
+      run: cargo clippy --workspace --all-targets --features transport-core/testing,transport-core/observability,transport-socket/tokio,transport-socket/mio,transport-socket/observability,transport-io-uring/observability,transport-afxdp/observability,transport-dpdk/observability,client-moldudp/observability,client-soupbintcp/tokio,client-soupbintcp/compressed,client-soupbintcp/observability -- -D warnings
 
     lat-check:
       run: lat check
@@ -64,4 +64,4 @@ pre-push:
     nextest:
       # feature list grows with workspace members, must match CI features job.
       # Never every feature: DPDK driver feature cannot build on macOS.
-      run: cargo nextest run --workspace --no-fail-fast --features transport_core/testing,transport_core/observability,transport_socket/tokio,transport_socket/mio,transport_socket/observability,transport_io_uring/observability,transport_afxdp/observability,transport_dpdk/observability,client_moldudp/observability,client_soupbintcp/tokio,client_soupbintcp/compressed,client_soupbintcp/observability
+      run: cargo nextest run --workspace --no-fail-fast --features transport-core/testing,transport-core/observability,transport-socket/tokio,transport-socket/mio,transport-socket/observability,transport-io-uring/observability,transport-afxdp/observability,transport-dpdk/observability,client-moldudp/observability,client-soupbintcp/tokio,client-soupbintcp/compressed,client-soupbintcp/observability

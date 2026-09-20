@@ -1,4 +1,4 @@
-# client_soupbintcp
+# client-soupbintcp
 
 SoupBinTCP v3.0 client: wire codec, login and heartbeat session, async and synchronous APIs over one state machine, optional compressed variant.
 

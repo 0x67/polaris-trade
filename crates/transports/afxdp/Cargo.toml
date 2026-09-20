@@ -1,5 +1,5 @@
 [package]
-name = "transport_afxdp"
+name = "transport-afxdp"
 version = "0.1.0"
 description = "AF_XDP receive for Linux over a raw XSK driver with its own XDP redirect program, no libxdp"
 edition.workspace = true
@@ -8,11 +8,11 @@ authors.workspace = true
 repository.workspace = true
 license.workspace = true
 readme = "README.md"
-# optional git dep on observability-core (through transport_core) blocks crates.io until it is published
+# optional git dep on observability-core (through transport-core) blocks crates.io until it is published
 publish = false
 
 [dependencies]
-transport_core = { workspace = true }
+transport-core = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { workspace = true }
@@ -21,10 +21,10 @@ tracing = { workspace = true }
 
 [features]
 default = []
-observability = ["transport_core/observability"]
+observability = ["transport-core/observability"]
 
 [dev-dependencies]
-transport_core = { workspace = true, features = ["testing"] }
+transport-core = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

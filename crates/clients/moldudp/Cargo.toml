@@ -1,5 +1,5 @@
 [package]
-name = "client_moldudp"
+name = "client-moldudp"
 version = "0.1.0"
 description = "MoldUDP64 client: wire codec, sequence reassembler, gap request handler, A/B arbiter, receiver"
 edition.workspace = true
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-transport_core = { workspace = true }
+transport-core = { workspace = true }
 bytes = { workspace = true }
 serde = { workspace = true }
 humantime-serde = { workspace = true }
@@ -25,11 +25,11 @@ metrics = { workspace = true, optional = true }
 
 [features]
 default = []
-observability = ["dep:observability-core", "dep:metrics", "transport_core/observability"]
+observability = ["dep:observability-core", "dep:metrics", "transport-core/observability"]
 
 [dev-dependencies]
-transport_core = { workspace = true, features = ["testing"] }
-transport_socket = { workspace = true, features = ["tokio", "mio"] }
+transport-core = { workspace = true, features = ["testing"] }
+transport-socket = { workspace = true, features = ["tokio", "mio"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
 allocation-counter = { workspace = true }
 serde_json = { workspace = true }

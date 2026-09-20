@@ -1,6 +1,6 @@
-# transport_io_uring
+# transport-io-uring
 
-io_uring UDP receive for Linux, built on the kernel-bypass shell in `transport_core`. Datagrams land in slots of one preallocated region and come back as frames without a copy; an idle receive loop makes no syscall. Receive only: no send, no stream.
+io_uring UDP receive for Linux, built on the kernel-bypass shell in `transport-core`. Datagrams land in slots of one preallocated region and come back as frames without a copy; an idle receive loop makes no syscall. Receive only: no send, no stream.
 
 On every other OS the crate compiles to nothing, so a workspace that depends on it still builds on macOS and Windows.
 
@@ -67,7 +67,7 @@ Detection runs at bind on the running kernel, not from its version string, so di
 In-crate tests are pure and run on any Linux host. `tests/real_io_uring.rs` needs a live ring and is ignored by default; run it privileged:
 
 ```sh
-cargo nextest run -p transport_io_uring --run-ignored ignored-only
+cargo nextest run -p transport-io-uring --run-ignored ignored-only
 ```
 
 `bind_without_io_uring_access_is_unavailable` expects io_uring blocked, so run it unprivileged.

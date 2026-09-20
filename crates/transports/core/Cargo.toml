@@ -1,5 +1,5 @@
 [package]
-name = "transport_core"
+name = "transport-core"
 version = "0.1.0"
 description = "Transport traits, frame batches, buffer pools, errors and the kernel-bypass shell shared by every backend"
 edition.workspace = true

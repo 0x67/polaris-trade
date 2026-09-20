@@ -1,4 +1,4 @@
-# transport_afxdp
+# transport-afxdp
 
 Linux AF_XDP receive over a raw XSK driver and its own XDP redirect program, feeding datagram consumers through the decap adapter. libc only: no libbpf, libxdp or C toolchain; other targets build an empty crate.
 

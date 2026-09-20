@@ -1,4 +1,4 @@
-# transport_socket
+# transport-socket
 
 Kernel socket transports on socket2: sync UDP, tokio UDP and TCP, runtime-free mio UDP and TCP. One receive loop and one option layer serve every type, on Linux, macOS and Windows.
 

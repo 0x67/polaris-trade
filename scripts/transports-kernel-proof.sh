@@ -88,7 +88,7 @@ expect_tests() {
 }
 
 io_uring_test() {
-	expect_tests 1 -p transport_io_uring -E "test(=$1)"
+	expect_tests 1 -p transport-io-uring -E "test(=$1)"
 }
 
 io_uring_blocked() {
@@ -97,7 +97,7 @@ io_uring_blocked() {
 		echo "no seccomp filter: container not unprivileged"
 		return 1
 	}
-	expect_tests 1 -p transport_io_uring -E 'test(=bind_without_io_uring_access_is_unavailable)'
+	expect_tests 1 -p transport-io-uring -E 'test(=bind_without_io_uring_access_is_unavailable)'
 }
 
 peer() {
@@ -131,7 +131,7 @@ veth_up() {
 
 afxdp_test() {
 	veth_up
-	expect_tests 1 -p transport_afxdp -E "test(=$1)"
+	expect_tests 1 -p transport-afxdp -E "test(=$1)"
 }
 
 # fixture stands in for operator's external program: maps pinned by name, generic attach
@@ -146,7 +146,7 @@ afxdp_pinned() {
 	# fixture redirects every frame, ARP included: peer learns receiver MAC statically
 	peer ip neigh replace "$DST" lladdr "$(cat "/sys/class/net/$IFACE/address")" \
 		dev "$PEER_IFACE" nud permanent
-	AFXDP_PINNED_MAP=$PIN_DIR/xsks_map expect_tests 1 -p transport_afxdp \
+	AFXDP_PINNED_MAP=$PIN_DIR/xsks_map expect_tests 1 -p transport-afxdp \
 		-E 'test(=pinned_passes_conformance_and_leaves_program_attached)'
 }
 
@@ -164,7 +164,7 @@ privileged() {
 	run_case afxdp/pinned afxdp_pinned
 	run_case afxdp/multicast afxdp_test multicast_join_listed_and_group_datagram_received
 	# tests start EAL themselves (--no-huge, net_pcap vdevs) and write own pcap input
-	run_case dpdk/net_pcap expect_tests 2 -p transport_dpdk --features driver-dpdk
+	run_case dpdk/net_pcap expect_tests 2 -p transport-dpdk --features driver-dpdk
 	((FAILED == 0))
 }
 

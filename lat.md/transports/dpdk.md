@@ -1,4 +1,4 @@
-# transport_dpdk
+# transport-dpdk
 
 DPDK poll-mode receive over a caller-initialised EAL, one mbuf per frame, linked through a small C shim. Receive only; serves datagram consumers through `UdpDecap`.
 

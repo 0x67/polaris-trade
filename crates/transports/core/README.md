@@ -1,8 +1,8 @@
-# transport_core
+# transport-core
 
 Traits, burst container, buffer pools, errors and the kernel-bypass shell shared by every transport in this workspace. It makes no syscall and needs no system library, so it builds on any OS.
 
-Consumers write against these traits and take any backend: `transport_socket` (kernel sockets on Linux, macOS and Windows), `transport_io_uring`, `transport_afxdp` and `transport_dpdk` (Linux). Backends build themselves from their own config types; nothing here binds or connects.
+Consumers write against these traits and take any backend: `transport-socket` (kernel sockets on Linux, macOS and Windows), `transport-io-uring`, `transport-afxdp` and `transport-dpdk` (Linux). Backends build themselves from their own config types; nothing here binds or connects.
 
 ## Traits
 
@@ -78,8 +78,8 @@ Both are off by default. `observability` pulls `observability-core` as a git dep
 ## Tests
 
 ```bash
-cargo nextest run -p transport_core --features testing
-cargo +nightly miri nextest run -p transport_core --test miri_pool
+cargo nextest run -p transport-core --features testing
+cargo +nightly miri nextest run -p transport-core --test miri_pool
 ```
 
 The suite runs over the mock driver on both layers, a counting allocator proves steady-state bursts allocate nothing, and Miri covers both pools.

@@ -1,5 +1,5 @@
 [package]
-name = "transport_socket"
+name = "transport-socket"
 version = "0.1.0"
 description = "Kernel socket transports: sync UDP, tokio UDP and TCP, runtime-free mio UDP and TCP over one receive loop"
 edition.workspace = true
@@ -8,11 +8,11 @@ authors.workspace = true
 repository.workspace = true
 license.workspace = true
 readme = "README.md"
-# optional git dep on observability-core (through transport_core) blocks crates.io until it is published
+# optional git dep on observability-core (through transport-core) blocks crates.io until it is published
 publish = false
 
 [dependencies]
-transport_core = { workspace = true }
+transport-core = { workspace = true }
 socket2 = { workspace = true }
 mio = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["net", "rt", "io-util", "time"] }
@@ -24,10 +24,10 @@ libc = { workspace = true }
 default = []
 tokio = ["dep:tokio"]
 mio = ["dep:mio"]
-observability = ["transport_core/observability"]
+observability = ["transport-core/observability"]
 
 [dev-dependencies]
-transport_core = { workspace = true, features = ["testing"] }
+transport-core = { workspace = true, features = ["testing"] }
 metrics = { workspace = true }
 metrics-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }

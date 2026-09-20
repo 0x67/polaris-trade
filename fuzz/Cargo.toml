@@ -11,8 +11,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
-client_moldudp = { path = "../crates/clients/moldudp" }
-client_soupbintcp = { path = "../crates/clients/soupbintcp", features = ["compressed"] }
+client-moldudp = { path = "../crates/clients/moldudp" }
+client-soupbintcp = { path = "../crates/clients/soupbintcp", features = ["compressed"] }
 
 [[bin]]
 name = "moldudp_wire"

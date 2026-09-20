@@ -5,7 +5,7 @@
 //!
 //! Every test but last needs `io_uring`, which default Docker seccomp blocks
 //! (privileged container or host); last needs it blocked. Run with
-//! `cargo nextest run -p transport_io_uring --run-ignored ignored-only`.
+//! `cargo nextest run -p transport-io-uring --run-ignored ignored-only`.
 #![cfg(target_os = "linux")]
 
 use std::{

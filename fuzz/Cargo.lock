@@ -51,7 +51,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "client_moldudp"
+name = "client-moldudp"
 version = "0.1.0"
 dependencies = [
  "bitvec",
@@ -61,11 +61,11 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tracing",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
-name = "client_soupbintcp"
+name = "client-soupbintcp"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -74,7 +74,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tracing",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
@@ -188,8 +188,8 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "polaris-fuzz"
 version = "0.0.0"
 dependencies = [
- "client_moldudp",
- "client_soupbintcp",
+ "client-moldudp",
+ "client-soupbintcp",
  "libfuzzer-sys",
 ]
 
@@ -351,7 +351,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "transport_core"
+name = "transport-core"
 version = "0.1.0"
 dependencies = [
  "thiserror",

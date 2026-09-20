@@ -1,4 +1,4 @@
-# transport_core
+# transport-core
 
 Shared transport layer: capability traits, fixed-capacity bursts, buffer pools, L2-to-UDP decap, kernel-bypass shell and one typed error. Makes no syscall; backends own drivers and configs.
 

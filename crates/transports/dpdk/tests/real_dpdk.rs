@@ -2,7 +2,7 @@
 //!
 //! Crate never initialises EAL, so this file does: EAL once per process, then
 //! per test one mempool and one port. Ignored: needs Linux with libdpdk and
-//! pcap PMD. Run: `cargo nextest run -p transport_dpdk --features driver-dpdk
+//! pcap PMD. Run: `cargo nextest run -p transport-dpdk --features driver-dpdk
 //! --run-ignored ignored-only`.
 #![cfg(all(target_os = "linux", feature = "driver-dpdk"))]
 

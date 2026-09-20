@@ -167,7 +167,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
-name = "client_moldudp"
+name = "client-moldudp"
 version = "0.1.0"
 dependencies = [
  "allocation-counter",
@@ -183,12 +183,12 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
- "transport_core",
- "transport_socket",
+ "transport-core",
+ "transport-socket",
 ]
 
 [[package]]
-name = "client_soupbintcp"
+name = "client-soupbintcp"
 version = "0.1.0"
 dependencies = [
  "allocation-counter",
@@ -203,8 +203,8 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
- "transport_core",
- "transport_socket",
+ "transport-core",
+ "transport-socket",
 ]
 
 [[package]]
@@ -1033,17 +1033,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "transport_afxdp"
+name = "transport-afxdp"
 version = "0.1.0"
 dependencies = [
  "libc",
  "socket2",
  "tracing",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
-name = "transport_core"
+name = "transport-core"
 version = "0.1.0"
 dependencies = [
  "allocation-counter",
@@ -1055,16 +1055,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "transport_dpdk"
+name = "transport-dpdk"
 version = "0.1.0"
 dependencies = [
  "cc",
  "pkg-config",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
-name = "transport_io_uring"
+name = "transport-io-uring"
 version = "0.1.0"
 dependencies = [
  "criterion",
@@ -1072,11 +1072,11 @@ dependencies = [
  "libc",
  "socket2",
  "tracing",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
-name = "transport_socket"
+name = "transport-socket"
 version = "0.1.0"
 dependencies = [
  "allocation-counter",
@@ -1087,7 +1087,7 @@ dependencies = [
  "mio",
  "socket2",
  "tokio",
- "transport_core",
+ "transport-core",
 ]
 
 [[package]]
