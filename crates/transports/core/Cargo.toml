@@ -1,6 +1,6 @@
 [package]
 name = "transport-core"
-version = "0.1.0"
+version = "0.1.0" # x-release-please-version
 description = "Transport traits, frame batches, buffer pools, errors and the kernel-bypass shell shared by every backend"
 edition.workspace = true
 rust-version.workspace = true

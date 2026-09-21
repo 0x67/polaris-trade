@@ -1,6 +1,6 @@
 [package]
 name = "transport-dpdk"
-version = "0.1.0"
+version = "0.1.0" # x-release-please-version
 description = "DPDK poll-mode receive over a caller-initialised EAL, one mbuf per frame"
 edition.workspace = true
 rust-version.workspace = true
