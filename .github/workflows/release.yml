@@ -6,6 +6,9 @@ name: release
 on:
   push:
     branches: [main]
+  # manual trigger for a release after a token rotation, or any time the run
+  # has to be repeated without a push
+  workflow_dispatch:
 
 jobs:
   release-please:
