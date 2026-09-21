@@ -1,5 +1,5 @@
 [package]
-name = "client-moldudp"
+name = "polaris-client-moldudp"
 version = "0.1.0" # x-release-please-version
 description = "MoldUDP64 client: wire codec, sequence reassembler, gap request handler, A/B arbiter, receiver"
 edition.workspace = true
@@ -10,6 +10,12 @@ license.workspace = true
 readme = "README.md"
 # optional git dep on observability-core blocks crates.io until it is published
 publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "client_moldudp"
 
 [dependencies]
 transport-core = { workspace = true }

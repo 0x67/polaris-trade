@@ -1,5 +1,5 @@
 [package]
-name = "transport-core"
+name = "polaris-transport-core"
 version = "0.1.0" # x-release-please-version
 description = "Transport traits, frame batches, buffer pools, errors and the kernel-bypass shell shared by every backend"
 edition.workspace = true
@@ -9,6 +9,12 @@ repository.workspace = true
 license.workspace = true
 # optional git dep on observability-core blocks crates.io until it is published
 publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "transport_core"
 
 [dependencies]
 thiserror = { workspace = true }

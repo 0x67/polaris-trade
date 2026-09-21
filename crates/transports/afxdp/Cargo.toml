@@ -1,5 +1,5 @@
 [package]
-name = "transport-afxdp"
+name = "polaris-transport-afxdp"
 version = "0.1.0" # x-release-please-version
 description = "AF_XDP receive for Linux over a raw XSK driver with its own XDP redirect program, no libxdp"
 edition.workspace = true
@@ -10,6 +10,12 @@ license.workspace = true
 readme = "README.md"
 # optional git dep on observability-core (through transport-core) blocks crates.io until it is published
 publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "transport_afxdp"
 
 [dependencies]
 transport-core = { workspace = true }

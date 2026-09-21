@@ -167,47 +167,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
-name = "client-moldudp"
-version = "0.1.0"
-dependencies = [
- "allocation-counter",
- "bitvec",
- "bytes",
- "humantime-serde",
- "metrics",
- "observability-core",
- "serde",
- "serde_json",
- "smallvec",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "transport-core",
- "transport-socket",
-]
-
-[[package]]
-name = "client-soupbintcp"
-version = "0.1.0"
-dependencies = [
- "allocation-counter",
- "bytes",
- "flate2",
- "humantime-serde",
- "metrics",
- "observability-core",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "transport-core",
- "transport-socket",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -631,6 +590,105 @@ dependencies = [
 ]
 
 [[package]]
+name = "polaris-client-moldudp"
+version = "0.1.0"
+dependencies = [
+ "allocation-counter",
+ "bitvec",
+ "bytes",
+ "humantime-serde",
+ "metrics",
+ "observability-core",
+ "polaris-transport-core",
+ "polaris-transport-socket",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "polaris-client-soupbintcp"
+version = "0.1.0"
+dependencies = [
+ "allocation-counter",
+ "bytes",
+ "flate2",
+ "humantime-serde",
+ "metrics",
+ "observability-core",
+ "polaris-transport-core",
+ "polaris-transport-socket",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "polaris-transport-afxdp"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "polaris-transport-core",
+ "socket2",
+ "tracing",
+]
+
+[[package]]
+name = "polaris-transport-core"
+version = "0.1.0"
+dependencies = [
+ "allocation-counter",
+ "criterion",
+ "metrics",
+ "metrics-util",
+ "observability-core",
+ "thiserror",
+]
+
+[[package]]
+name = "polaris-transport-dpdk"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "polaris-transport-core",
+]
+
+[[package]]
+name = "polaris-transport-io-uring"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "io-uring",
+ "libc",
+ "polaris-transport-core",
+ "socket2",
+ "tracing",
+]
+
+[[package]]
+name = "polaris-transport-socket"
+version = "0.1.0"
+dependencies = [
+ "allocation-counter",
+ "criterion",
+ "libc",
+ "metrics",
+ "metrics-util",
+ "mio",
+ "polaris-transport-core",
+ "socket2",
+ "tokio",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1030,64 +1088,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "transport-afxdp"
-version = "0.1.0"
-dependencies = [
- "libc",
- "socket2",
- "tracing",
- "transport-core",
-]
-
-[[package]]
-name = "transport-core"
-version = "0.1.0"
-dependencies = [
- "allocation-counter",
- "criterion",
- "metrics",
- "metrics-util",
- "observability-core",
- "thiserror",
-]
-
-[[package]]
-name = "transport-dpdk"
-version = "0.1.0"
-dependencies = [
- "cc",
- "pkg-config",
- "transport-core",
-]
-
-[[package]]
-name = "transport-io-uring"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "io-uring",
- "libc",
- "socket2",
- "tracing",
- "transport-core",
-]
-
-[[package]]
-name = "transport-socket"
-version = "0.1.0"
-dependencies = [
- "allocation-counter",
- "criterion",
- "libc",
- "metrics",
- "metrics-util",
- "mio",
- "socket2",
- "tokio",
- "transport-core",
 ]
 
 [[package]]
