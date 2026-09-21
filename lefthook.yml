@@ -30,7 +30,7 @@ pre-commit:
       glob: "*.rs"
       # feature list grows with workspace members, must match CI features job.
       # Never every feature: DPDK driver feature cannot build on macOS.
-      run: cargo clippy --workspace --all-targets --features transport-core/testing,transport-core/observability,transport-socket/tokio,transport-socket/mio,transport-socket/observability,transport-io-uring/observability,transport-afxdp/observability,transport-dpdk/observability,client-moldudp/observability,client-soupbintcp/tokio,client-soupbintcp/compressed,client-soupbintcp/observability -- -D warnings
+      run: cargo clippy --workspace --all-targets --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/compressed,polaris-client-soupbintcp/observability -- -D warnings
 
     lat-check:
       run: lat check
@@ -64,4 +64,4 @@ pre-push:
     nextest:
       # feature list grows with workspace members, must match CI features job.
       # Never every feature: DPDK driver feature cannot build on macOS.
-      run: cargo nextest run --workspace --no-fail-fast --features transport-core/testing,transport-core/observability,transport-socket/tokio,transport-socket/mio,transport-socket/observability,transport-io-uring/observability,transport-afxdp/observability,transport-dpdk/observability,client-moldudp/observability,client-soupbintcp/tokio,client-soupbintcp/compressed,client-soupbintcp/observability
+      run: cargo nextest run --workspace --no-fail-fast --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/compressed,polaris-client-soupbintcp/observability

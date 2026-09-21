@@ -21,8 +21,10 @@ repository = "https://github.com/0x67/polaris-trade"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-transport-core = { path = "crates/transports/core" }
-transport-socket = { path = "crates/transports/socket" }
+# published under a polaris- prefix to hold the registry namespace; the alias
+# keeps import paths and feature strings unchanged across every member
+transport-core = { package = "polaris-transport-core", path = "crates/transports/core" }
+transport-socket = { package = "polaris-transport-socket", path = "crates/transports/socket" }
 
 # publish = false upstream: any crate enabling this cannot be published to crates.io until it is
 observability-core = { git = "https://github.com/0x67/observability", tag = "observability-core-v0.2.1" }

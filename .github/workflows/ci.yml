@@ -17,7 +17,7 @@ jobs:
     uses: 0x67/ci/.github/workflows/rust-ci.yml@main
     with:
       concurrency-key: features
-      workspace-args: --features transport-core/testing,transport-core/observability,transport-socket/tokio,transport-socket/mio,transport-socket/observability,transport-io-uring/observability,transport-afxdp/observability,transport-dpdk/observability,client-moldudp/observability,client-soupbintcp/tokio,client-soupbintcp/compressed,client-soupbintcp/observability
+      workspace-args: --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/compressed,polaris-client-soupbintcp/observability
 
   # DPDK driver leg: needs libdpdk, Linux only. Checked apart from the
   # workspace jobs above so a missing system lib never blocks the portable path.
@@ -26,26 +26,26 @@ jobs:
     with:
       extra-commands: |
         sudo apt-get update && sudo apt-get install -y libdpdk-dev libpcap-dev pkg-config
-        cargo clippy -p transport-dpdk --all-targets --locked --features driver-dpdk -- -D warnings
-        cargo test -p transport-dpdk --locked --features driver-dpdk --no-run
+        cargo clippy -p polaris-transport-dpdk --all-targets --locked --features driver-dpdk -- -D warnings
+        cargo test -p polaris-transport-dpdk --locked --features driver-dpdk --no-run
 
   # pool and ring arithmetic under Miri. one job per slice: a shared miri-args
   # string would apply one crate's test filter to the other's tests too.
   miri-pool:
     uses: 0x67/ci/.github/workflows/rust-miri.yml@main
     with:
-      miri-args: -p transport-core --test miri_pool
+      miri-args: -p polaris-transport-core --test miri_pool
       advisory: true
 
   miri-bypass:
     uses: 0x67/ci/.github/workflows/rust-miri.yml@main
     with:
-      miri-args: -p transport-core --features testing --test bypass
+      miri-args: -p polaris-transport-core --features testing --test bypass
       advisory: true
 
   # runner is already the Linux target Miri interprets here, so no --target flag.
   miri-afxdp-ring:
     uses: 0x67/ci/.github/workflows/rust-miri.yml@main
     with:
-      miri-args: -p transport-afxdp --lib ring
+      miri-args: -p polaris-transport-afxdp --lib ring
       advisory: true
