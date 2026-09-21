@@ -143,10 +143,11 @@ impl GapRequestEmitter {
     }
 
     /// Send Request Packet from `sock` for each gap not covered by range
-    /// requested within last `1 / max_per_gap_per_sec` s, returning how many
-    /// were sent. Full socket buffer stops this round without marking rest
-    /// requested, so next call retries them. Failed send is marked like sent
-    /// one, so broken socket costs one attempt per interval, not one per call.
+    /// requested within last `1 / max_per_gap_per_sec` s of `now`, returning
+    /// how many were sent. Full socket buffer stops this round without marking
+    /// rest requested, so next call retries them. Failed send is marked like
+    /// sent one, so broken socket costs one attempt per interval, not one per
+    /// call. Caller reads clock, so rate limit is testable without sleeping.
     ///
     /// # Errors
     ///
@@ -156,9 +157,9 @@ impl GapRequestEmitter {
         gaps: &[GapRequest],
         session: [u8; 10],
         sock: &mut Q,
+        now: Instant,
     ) -> Result<usize, MoldUdpError> {
         let interval = Duration::from_secs(1) / self.max_per_gap_per_sec;
-        let now = Instant::now();
         // expired ranges limit nothing; pruning keeps list bounded
         self.requested
             .retain(|&(_, _, at)| now.duration_since(at) < interval);
