@@ -1,6 +1,6 @@
 [package]
 name = "transport-socket"
-version = "0.1.0"
+version = "0.1.0" # x-release-please-version
 description = "Kernel socket transports: sync UDP, tokio UDP and TCP, runtime-free mio UDP and TCP over one receive loop"
 edition.workspace = true
 rust-version.workspace = true
