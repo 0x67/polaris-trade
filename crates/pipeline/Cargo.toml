@@ -1,0 +1,35 @@
+[package]
+name = "polaris-pipeline"
+description = "Ingest/output traits, egress sequencing, instrument identity, versioned config, coverage"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "md_pipeline"
+
+[features]
+# Opt-in jiff-backed `BundledTzdb` resolver for zoned sessions. Without it no
+# zone database is linked; continuous and fixed-offset sessions still resolve.
+tz = ["dep:jiff"]
+# Conformance harnesses, reusable by md-replay and adapter crates: the ingest
+# suite + reference mock source for IngestSource impls (mirrors transport-core's
+# `testing`), and `adapter::testing` for VenueAdapter impls.
+testing = []
+
+[dependencies]
+jiff = { workspace = true, optional = true }
+md-events = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"

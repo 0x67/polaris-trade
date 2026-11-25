@@ -1,0 +1,16 @@
+[package]
+name = "polaris-events"
+description = "Normalized market-data event contract: records, flags, price, actions, trading state"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "md_events"

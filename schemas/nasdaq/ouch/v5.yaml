@@ -1,0 +1,380 @@
+# NASDAQ OUCH 5.0 Order Entry Specification, 8 inbound + 17 outbound kinds.
+# Source: OUCH 5.0 Order Entry Specification (Updated October, 2025), venue PDF read via pdftotext -layout.
+# Venue doc wins layout conflicts. Doc's own Data Types section names numeric widths Byte(1)/Short(2)/
+# Integer(4)/Long(8), but many field rows print an ad-hoc "Numeric" label spanning all four widths, and
+# a few rows carry a plainly wrong or garbled Type cell. Class is assigned from the Length column
+# throughout; every place that overrides a printed Type label is called out via defect: on the kind
+# (appendage-tag overrides are noted inline in that tag's own doc: text, since AppendageTag has no
+# defect key).
+# tags 8, 19, 20, 21 undefined in doc (Appendix A skips these tag numbers).
+venue: nasdaq
+protocol: ouch
+doc_version: "5.0"
+endianness: be
+
+appendage_tags:
+  - { tag: 1, name: secondary_ord_ref_num, width: 8, class: u64, doc: "Alternative order reference number used when publishing the order on Nasdaq market data feeds, identifying for example the displayed portion of a reserve order. Default not applicable. Doc prints an anomalous Type cell for this row instead of a real type name; width 8 read as u64 per Length column." }
+  - { tag: 2, name: firm, width: 4, class: alpha, doc: "Firm identifier for the order entry firm, all caps. One logical OUCH account can enter orders for multiple firms in a Service Bureau configuration. Default blank-filled (spaces), meaning the account's default firm is used." }
+  - { tag: 3, name: min_qty, width: 4, class: u32, doc: "Minimum quantity; must be a round lot. Default 0 (zero), no minimum quantity." }
+  - { tag: 4, name: customer_type, width: 1, class: alpha, doc: "R = Retail Designated Order, N = Not Retail Designated (default). Default space, use port default." }
+  - { tag: 5, name: max_floor, width: 4, class: u32, doc: "Portion of the order to display; the remainder rests as reserve. Default 0 (zero), no Max Floor." }
+  - { tag: 6, name: price_type, width: 1, class: alpha, doc: "L = limit (default), P = market peg, M = midpoint peg, R = primary peg, Q = market maker peg. Default L, limit." }
+  - { tag: 7, name: peg_offset, width: 4, class: i32, doc: "Offset amount for the pegged value; a Signed Price field. Default 0 (zero), no peg offset." }
+  - { tag: 9, name: discretion_price, width: 8, class: u64, doc: "Discretion price for a Discretionary Order. Default 0 (zero), no discretion price." }
+  - { tag: 10, name: discretion_price_type, width: 1, class: alpha, doc: "L = limit (default), P = market peg, M = midpoint peg, R = primary peg. Default L, limit." }
+  - { tag: 11, name: discretion_peg_offset, width: 4, class: i32, doc: "Offset amount for the pegged value of the Discretion Price; a Signed Price field. Default 0 (zero), no offset." }
+  - { tag: 12, name: post_only, width: 1, class: alpha, doc: "P = Post Only (Midpoint Post Only not available on BX), N = No (default). Default N, no post only." }
+  - { tag: 13, name: random_reserves, width: 4, class: u32, doc: "Shares to do random reserve with. Default 0 (zero), no random reserves." }
+  - { tag: 14, name: route, width: 4, class: alpha, doc: "Routing destination for the order. Default not applicable." }
+  - { tag: 15, name: expire_time, width: 4, class: u32, doc: "Seconds to live, must be less than 86400 (seconds in a day). Default 0 (zero), no expire time." }
+  - { tag: 16, name: trade_now, width: 1, class: alpha, doc: "Y = yes, N = no (default). Default space, use port default." }
+  - { tag: 17, name: handle_inst, width: 1, class: alpha, doc: "I = imbalance only (CrossType O and C), O = retail order type 1 (CrossType R), T = retail order type 2 (CrossType R), Q = retail price improvement (CrossType R), B = Extended Life plus Continuous (CrossType E), D = Direct Listing Capital Raise (CrossType H). Default space, no handling instructions." }
+  - { tag: 18, name: bbo_weight_indicator, width: 1, class: alpha, doc: "0 = 0-0.2%, 1 = 0.2%-1%, 2 = 1%-2%, 3 = greater than 2%, space = unspecified (default), S = Sets the QBBO while joining the NBBO, N = Improves the NBBO upon entry. Default not applicable." }
+  - { tag: 22, name: display_quantity, width: 4, class: u32, doc: "Used only in the Order Restated Message; represents an update of an order's displayed quantity (an order with reserves). Default not applicable. Doc labels this row an ad-hoc Numeric; width 4 read as u32 per Length column." }
+  - { tag: 23, name: display_price, width: 8, class: u64, doc: "Used only in the Order Restated Message; represents an update of an order's displayed price. Default not applicable." }
+  - { tag: 24, name: group_id, width: 2, class: u16, doc: "Customer Group ID identifying a specific entity. Default 0 (zero), no Group ID. Doc labels this row an ad-hoc Numeric; width 2 read as u16 per Length column." }
+  - { tag: 25, name: shares_located, width: 1, class: alpha, doc: "Shares located for a short sale order. Y = yes, N = no (default). Default N, no." }
+  - { tag: 26, name: locate_broker, width: 4, class: alpha, doc: "Broker code from which the locate was acquired for a short sale order. Default not applicable." }
+  - { tag: 27, name: side, width: 1, class: alpha, doc: "B = buy, S = sell, T = sell short, E = sell short exempt. Default not applicable." }
+  - { tag: 28, name: user_ref_idx, width: 1, class: u8, doc: "User Reference Index identifying the order flow channel within the given port. Default not applicable. Doc labels this row an ad-hoc Numeric; width 1 read as u8 per Length column." }
+
+kinds:
+  - name: EnterOrder
+    byte: "O"
+    byte_len: 47
+    direction: to_exchange
+    doc: "Submits a new limit order to the NASDAQ book. UserRefNum must be day-unique and strictly increasing for the OUCH account (or, when UserRefIdx is used, for that order flow channel)."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "Day-unique, strictly increasing transaction identifier for this OUCH account." }
+      - { name: side, width: 1, class: code, doc: "B = buy, S = sell, T = sell short, E = sell short exempt." }
+      - { name: quantity, width: 4, class: u32, doc: "Total number of shares; must be greater than zero and less than 1,000,000." }
+      - { name: symbol, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: price, width: 8, class: u64, doc: "Price of the order; unsigned, implied 4 decimal places." }
+      - { name: time_in_force, width: 1, class: code, doc: "Corresponds to TimeInForce(59) in Nasdaq FIX. 0 = Day (Market Hours), 3 = IOC, 5 = GTX (Extended Hours), 6 = GTT (ExpireTime must be specified), E = After hours." }
+      - { name: display, width: 1, class: code, doc: "Y = visible, N = hidden, A = attributable." }
+      - { name: capacity, width: 1, class: code, doc: "A = agency, P = principal, R = riskless, O = other." }
+      - { name: inter_market_sweep_eligibility, width: 1, class: code, doc: "Y = eligible, N = not eligible." }
+      - { name: cross_type, width: 1, class: code, doc: "N = continuous market, O = opening cross (Nasdaq only), C = closing cross (Nasdaq only), H = halt/IPO (Nasdaq only), S = supplemental (Nasdaq only), R = retail (BX only), E = extended life (Nasdaq only), A = after hours close (Nasdaq only)." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier; not checked for day-uniqueness." }
+    appendage: [firm, min_qty, customer_type, max_floor, price_type, peg_offset, discretion_price, discretion_price_type, discretion_peg_offset, post_only, random_reserves, expire_time, trade_now, handle_inst, group_id, shares_located, locate_broker, user_ref_idx]
+
+  - name: ReplaceOrderRequest
+    byte: "U"
+    byte_len: 40
+    direction: to_exchange
+    doc: "Cancels and replaces an existing order in one message, giving it a new timestamp for time priority. OrigUserRefNum must name a live order; the replacement UserRefNum must be new and is consumed even when NASDAQ rejects the replace."
+    fields:
+      - { name: orig_user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being replaced, from the Enter Order or last Replace Order message." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "New, day-unique, strictly increasing UserRefNum for the replacement." }
+      - { name: quantity, width: 4, class: u32, doc: "Total shares liable for the whole replace chain, inclusive of prior executions; must be greater than zero and less than 1,000,000." }
+      - { name: price, width: 8, class: u64, doc: "Price of the replacement order." }
+      - { name: time_in_force, width: 1, class: code, doc: "Corresponds to TimeInForce(59) in Nasdaq FIX. 0 = Day (Market Hours), 3 = IOC, 5 = GTX (Extended Hours), 6 = GTT (ExpireTime must be specified)." }
+      - { name: display, width: 1, class: code, doc: "Y = visible, N = hidden, A = attributable." }
+      - { name: inter_market_sweep_eligibility, width: 1, class: code, doc: "Y = eligible, N = not eligible." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier for the replacement order." }
+    appendage: [min_qty, max_floor, price_type, post_only, expire_time, trade_now, handle_inst, random_reserves, peg_offset, discretion_price, discretion_price_type, discretion_peg_offset, shares_located, locate_broker, user_ref_idx, side]
+    defect: "doc notes Firm and GroupID are deliberately excluded here (inherited from the original order); side is included, unlike Enter Order, because Modify-style replace can change it."
+
+  - name: CancelOrderRequest
+    byte: "X"
+    byte_len: 11
+    direction: to_exchange
+    doc: "Requests that an order be reduced or fully canceled; the Quantity field carries the new intended order size, not a decrement. A zero cancels any remaining open shares."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum as originally transmitted in the Enter Order message." }
+      - { name: quantity, width: 4, class: u32, doc: "New intended order size; caps the maximum shares that can execute after the cancel. Zero cancels the remaining balance." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+
+  - name: ModifyOrderRequest
+    byte: "M"
+    byte_len: 12
+    direction: to_exchange
+    doc: "Requests modifications that do not affect the order's book priority. Increasing share amount is not allowed and such requests are ignored."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum as originally transmitted in the Enter Order message." }
+      - { name: side, width: 1, class: code, doc: "New side for the order. B = buy, S = sell, T = sell short, E = sell short exempt. Doc lists the only allowed transitions as S34E, S34T, E34T, likely an arrow glyph lost in PDF conversion (read as side-to-side transitions such as S to E)." }
+      - { name: quantity, width: 4, class: u32, doc: "New intended order size; caps the maximum shares that can execute after the modify. Zero cancels the remaining balance." }
+    appendage: [user_ref_idx, shares_located, locate_broker]
+    appendage_optional: true
+
+  - name: MassCancelRequest
+    byte: "C"
+    byte_len: 19
+    direction: to_exchange
+    doc: "Initiates cancellation of one or more booked orders matching the given criteria; with no optional criteria, all orders for the specified firm on the account are cancelled."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "Day-unique, strictly increasing User Reference Number for the Order Port." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+      - { name: symbol, width: 8, class: alpha, doc: "Optional, space filled if not specified; symbol to mass cancel orders on." }
+    appendage: [side, group_id, user_ref_idx]
+    defect: "for the group_id tag on this message: value 0 cancels all orders without a Group ID; an absent tag cancels all orders regardless of Group ID."
+
+  - name: DisableOrderEntryRequest
+    byte: "D"
+    byte_len: 11
+    direction: to_exchange
+    doc: "Blocks submission of new orders on a particular account."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "Day-unique, strictly increasing User Reference Number for the Order Port." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+    appendage: [user_ref_idx]
+
+  - name: EnableOrderEntryRequest
+    byte: "E"
+    byte_len: 11
+    direction: to_exchange
+    doc: "Unblocks submission of new orders on a particular account."
+    fields:
+      - { name: user_ref_num, width: 4, class: u32, doc: "Day-unique, strictly increasing User Reference Number for the Order Port." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+    appendage: [user_ref_idx]
+
+  - name: AccountQueryRequest
+    byte: "Q"
+    byte_len: 3
+    direction: to_exchange
+    doc: "Used when recovering state, to request the next available UserRefNum for identifying new transactions."
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "doc table for this message lists only Type, Appendage Length, and Optional Appendage; there is no fixed field between the type byte and the appendage. Transcribed with an empty fields list rather than inventing a field the venue doc does not define; the schema loader accepts an empty fields list on a fixed kind when an appendage is declared, an exception added for exactly this kind."
+
+  - name: SystemEvent
+    byte: "S"
+    byte_len: 10
+    direction: from_exchange
+    doc: "Signals events affecting the entire NASDAQ system."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: event_code, width: 1, class: code, doc: "S = Start Of Day, exchange open and accepting orders. E = End Of Day, exchange closed and no longer accepting new orders; breaks and cancels may still follow." }
+
+  - name: OrderAccepted
+    byte: "A"
+    byte_len: 64
+    direction: from_exchange
+    doc: "Acknowledges receipt and acceptance of a valid Enter Order message, echoing back its fields. Accepted values may differ from entered values; when Order State is Order Dead, the order was accepted and immediately auto-canceled and no further messages follow."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "The order UserRefNum as entered. Doc prints this row's own name with a typo (UesrRefNum)." }
+      - { name: side, width: 1, class: code, doc: "The side as entered." }
+      - { name: quantity, width: 4, class: u32, doc: "Total number of shares accepted." }
+      - { name: symbol, width: 8, class: alpha, doc: "Stock symbol as entered." }
+      - { name: price, width: 8, class: u64, doc: "Accepted price of the order; may differ from the entered price if re-priced on entry, but is always better than or equal to it." }
+      - { name: time_in_force, width: 1, class: code, doc: "Accepted Time in Force; always equal to or shorter in scope than the entered value." }
+      - { name: display, width: 1, class: code, doc: "Accepted display. Y = visible, N = hidden, A = attributable, Z = conformant." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Day-unique Order Reference Number assigned by NASDAQ to this order." }
+      - { name: capacity, width: 1, class: code, doc: "Capacity as specified on the order." }
+      - { name: inter_market_sweep_eligibility, width: 1, class: code, doc: "Y = eligible, N = not eligible." }
+      - { name: cross_type, width: 1, class: code, doc: "Cross type as entered." }
+      - { name: order_state, width: 1, class: code, doc: "L = Order Live, D = Order Dead." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier." }
+    appendage: [firm, min_qty, customer_type, max_floor, price_type, peg_offset, discretion_price, discretion_price_type, discretion_peg_offset, post_only, random_reserves, route, expire_time, trade_now, handle_inst, bbo_weight_indicator, group_id, shares_located, user_ref_idx]
+    defect: "order_reference_number is printed as Numeric (ad hoc) in the doc; width 8 read as u64 per Length column."
+
+  - name: OrderReplaced
+    byte: "U"
+    byte_len: 68
+    direction: from_exchange
+    doc: "Acknowledges a valid Replace Order message, echoing its fields; sent instead of a Rejected message when the replace is accepted. Order State Order Dead means the replace was accepted and immediately auto-canceled."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: orig_user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being replaced." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the replacement order, as entered." }
+      - { name: side, width: 1, class: code, doc: "The side as entered." }
+      - { name: quantity, width: 4, class: u32, doc: "Total number of shares outstanding." }
+      - { name: symbol, width: 8, class: alpha, doc: "Stock symbol as entered." }
+      - { name: price, width: 8, class: u64, doc: "Accepted price of the replacement; may differ from the entered price if re-priced on entry, but is always better than or equal to it." }
+      - { name: time_in_force, width: 1, class: code, doc: "Accepted Time in Force; always equal to or shorter in scope than the entered value." }
+      - { name: display, width: 1, class: code, doc: "Accepted display type. Y = visible, N = hidden, A = attributable, Z = conformant." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Day-unique Order Reference Number assigned by NASDAQ to this order." }
+      - { name: capacity, width: 1, class: code, doc: "Capacity as specified on the order." }
+      - { name: inter_market_sweep_eligibility, width: 1, class: code, doc: "Y = eligible, N = not eligible." }
+      - { name: cross_type, width: 1, class: code, doc: "Cross type as entered." }
+      - { name: order_state, width: 1, class: code, doc: "L = Order Live, D = Order Dead." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier for the replacement order." }
+    appendage: [firm, min_qty, max_floor, price_type, post_only, expire_time, trade_now, handle_inst, bbo_weight_indicator, user_ref_idx]
+    defect: "order_reference_number is printed as Numeric (ad hoc) in the doc; width 8 read as u64 per Length column."
+
+  - name: OrderCanceled
+    byte: "C"
+    byte_len: 20
+    direction: from_exchange
+    doc: "Informs the client an order has been reduced or canceled, either acknowledging a Cancel Order message or reporting an automatic timeout/cancel. Does not necessarily mean the whole order is dead."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being (partially) canceled." }
+      - { name: quantity, width: 4, class: u32, doc: "Number of shares decremented from the order; incremental, not cumulative." }
+      - { name: reason, width: 1, class: code, doc: "Reason the order was reduced or canceled; single-letter code, see the Order Cancel Reasons appendix." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "quantity is printed as Numeric (ad hoc) in the doc; width 4 read as u32 per Length column."
+
+  - name: AiqCanceled
+    byte: "D"
+    byte_len: 34
+    direction: from_exchange
+    doc: "Automated Inventory Quote cancel notice; reports shares decremented from an order because it would have executed against a same-firm resting order (self match prevention)."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being reduced." }
+      - { name: decrement_shares, width: 4, class: u32, doc: "Number of shares just decremented from the order; incremental, not cumulative." }
+      - { name: reason, width: 1, class: code, doc: "Reason the order was reduced; always Q for an AIQ cancel." }
+      - { name: quantity_prevented_from_trading, width: 4, class: u32, doc: "Shares that would have executed if the trade had occurred; may differ from decrement_shares for a Cancel Oldest AIQ strategy when the incoming order is smaller than the resting order." }
+      - { name: execution_price, width: 8, class: u64, doc: "Price at which the trade would have occurred." }
+      - { name: liquidity_flag, width: 1, class: code, doc: "Liquidity flag the order would have received; see the Liquidity Codes appendix." }
+      - { name: aiq_strategy, width: 1, class: code, doc: "AIQ strategy used on the canceled order." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "decrement_shares is printed as Numeric (ad hoc) in the doc; width 4 read as u32 per Length column."
+
+  - name: OrderExecuted
+    byte: "E"
+    byte_len: 36
+    direction: from_exchange
+    doc: "Informs the client that all or part of an order has been executed."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being executed." }
+      - { name: quantity, width: 4, class: u32, doc: "Incremental number of shares just executed." }
+      - { name: price, width: 8, class: u64, doc: "Price at which the shares were executed." }
+      - { name: liquidity_flag, width: 1, class: code, doc: "Liquidity flag the order received; see the Liquidity Codes appendix." }
+      - { name: match_number, width: 8, class: u64, doc: "Exchange-assigned identifier for the trade; both the buy and sell side of the trade share the same match number." }
+    appendage: [user_ref_idx]
+    defect: "quantity and match_number are both printed as Numeric (ad hoc) in the doc; widths 4 and 8 read as u32 and u64 per Length column."
+
+  - name: BrokenTrade
+    byte: "B"
+    byte_len: 38
+    direction: from_exchange
+    doc: "Informs the client an execution has been broken; the trade is no longer good and will not clear. Always preceded by an Order Executed message for the same match number."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order whose execution is being broken." }
+      - { name: match_number, width: 8, class: u64, doc: "Match number as transmitted in the Order Executed message being broken." }
+      - { name: reason, width: 1, class: code, doc: "E = Erroneous, C = Consent (both parties agreed), S = Supervisory (manually broken), X = External (broken by a third party)." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "match_number is printed as Numeric (ad hoc) in the doc; width 8 read as u64 per Length column."
+
+  - name: Rejected
+    byte: "J"
+    byte_len: 31
+    direction: from_exchange
+    doc: "Sent in response to an Enter Order or Replace Order message when the order or replace cannot be accepted; the rejected UserRefNum cannot be reused."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being rejected." }
+      - { name: reason, width: 2, class: u16, doc: "Reason the order was rejected; see the Order Reject Reasons appendix." }
+      - { name: cl_ord_id, width: 14, class: alpha, doc: "Customer order identifier for the order being rejected." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "reason is printed as Numeric (ad hoc) in the doc; width 2 read as u16 per Length column. Doc prose also points this field at Appendix D, but the Order Reject Reasons table is Appendix C in this doc's own contents; Appendix D is Liquidity Codes."
+
+  - name: CancelPending
+    byte: "P"
+    byte_len: 15
+    direction: from_exchange
+    doc: "Sent in response to a cancel request for a cross order in a pre-cross late period, signifying it cannot be canceled now; any unexecuted portion auto-cancels once the cross completes. Sent at most once per UserRefNum."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order suffering the pending cancel." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+
+  - name: CancelReject
+    byte: "I"
+    byte_len: 15
+    direction: from_exchange
+    doc: "Sent in response to a partial cancel request (non-zero intended order size) for a cross order in a pre-cross late period; no automatic cancel is scheduled. Sent at most once per UserRefNum."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order that was cancel-rejected." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+
+  - name: OrderPriorityUpdate
+    byte: "T"
+    byte_len: 32
+    direction: from_exchange
+    doc: "Sent whenever the system changes an order's book priority; assigns a new Order Reference Number."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order whose priority was updated." }
+      - { name: price, width: 8, class: u64, doc: "Limit price of the order." }
+      - { name: display, width: 1, class: code, doc: "New display for the order. Y = Anonymous, Price to Comply." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Day-unique Order Reference Number newly assigned as a result of the priority update." }
+    appendage: [user_ref_idx]
+    appendage_optional: true
+    defect: "order_reference_number is printed as Numeric (ad hoc) in the doc; width 8 read as u64 per Length column."
+
+  - name: OrderModified
+    byte: "M"
+    byte_len: 20
+    direction: from_exchange
+    doc: "Sent in response to an Order Modify Request."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order that was modified." }
+      - { name: side, width: 1, class: code, doc: "Side as entered in the Order Modify Request." }
+      - { name: quantity, width: 4, class: u32, doc: "Total number of shares outstanding." }
+    appendage: [user_ref_idx, shares_located, locate_broker]
+    appendage_optional: true
+    defect: "quantity is printed as Numeric (ad hoc) in the doc; width 4 read as u32 per Length column."
+
+  - name: OrderRestated
+    byte: "R"
+    byte_len: 16
+    direction: from_exchange
+    doc: "Sent to indicate the system modified an order as part of its own order management."
+    defect: "the doc table caption for this section reads Best Bid or Ask Update Message, a copy-paste artifact contradicted by the section heading and body prose (Order Restated); the section heading is followed here."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum of the order being restated." }
+      - { name: reason, width: 1, class: code, doc: "R = Refresh of display (on an order with reserves), P = Update of displayed price." }
+    appendage: [display_quantity, display_price, secondary_ord_ref_num, user_ref_idx]
+
+  - name: MassCancelResponse
+    byte: "X"
+    byte_len: 27
+    direction: from_exchange
+    doc: "Acknowledges receipt of a valid Mass Cancel Request, echoing back its fields."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum from the inbound message." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+      - { name: symbol, width: 8, class: alpha, doc: "Optional, space filled if not specified; symbol the mass cancel applied to." }
+    appendage: [side, group_id, user_ref_idx]
+
+  - name: DisableOrderEntryResponse
+    byte: "G"
+    byte_len: 19
+    direction: from_exchange
+    doc: "Acknowledges receipt of a Disable Order Entry Request, echoing back its fields."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum from the inbound message." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+    appendage: [user_ref_idx]
+
+  - name: EnableOrderEntryResponse
+    byte: "K"
+    byte_len: 19
+    direction: from_exchange
+    doc: "Acknowledges receipt of an Enable Order Entry Request, echoing back its fields."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: user_ref_num, width: 4, class: u32, doc: "UserRefNum from the inbound message." }
+      - { name: firm, width: 4, class: alpha, doc: "All-caps firm identifier for the order entry firm." }
+    appendage: [user_ref_idx]
+
+  - name: AccountQueryResponse
+    byte: "Q"
+    byte_len: 15
+    direction: from_exchange
+    doc: "Sent in response to an Account Query Request, giving the next available UserRefNum for identifying new transactions."
+    fields:
+      - { name: timestamp, width: 8, class: u64, doc: "Nanoseconds since midnight." }
+      - { name: next_user_ref_num, width: 4, class: u32, doc: "Next available UserRefNum." }
+    appendage: [user_ref_idx]
+    appendage_optional: true

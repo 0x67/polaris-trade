@@ -1,0 +1,16 @@
+{
+  "venue": "nasdaq-itch-v5",
+  "capture": {
+    "label": "nasdaq_v5_2020-01-30.bin.zst",
+    "sha256": "44326fa9c5185ce9549017f6a2f517fb64f7fc1ab28a4d573bfcf30dad53ef5f",
+    "max_messages": 100000000
+  },
+  "baseline_host": "m4pro-macos",
+  "tolerance": {
+    "stage_p50_pct": 50.0,
+    "stage_p99_pct": 60.0,
+    "stage_slack_ns": 43.0,
+    "throughput_pct": 30.0
+  },
+  "note": "Input and tolerances for the gate in tests/bench_regression.rs. capture.sha256 is the sha256 of the capture file and capture.max_messages the message cap of benches/nasdaq_pipeline.rs; the test refuses a fresh run with another sha256 or cap. The tolerances were chosen for m4pro-macos (Apple M4 Pro, a laptop that runs other work beside the bench) from eight runs of 100,000,000 messages on 2026-11-18, four of them while a backup and other system work kept the host busy. Its monotonic clock ticks every 41.67 ns, so each stage percentile is a whole number of ticks. Across the eight runs throughput ranged from 2.03M to 2.45M msgs/s (17 percent) and the decode mean from 5.56 to 5.75 ns. The feed p50 was 84 ns on the calmer host and 125 ns on the busy one, one tick apart, and the other p50s did not move (book apply 83, book derive 42, egress 1 ns). The p99s ranged from 292 to 375 ns for feed, 625 to 750 ns for book apply and 250 to 291 ns for book derive, and egress stayed at 42 ns. stage_slack_ns covers one tick: a stage percentile may rise by its percentage or by one tick, whichever is more, since one tick is 50 percent or more of every stage p50. The report holds whole nanoseconds, so the same tick count reads 1 ns apart between samples (41 or 42 ns for one tick, 83 or 84 for two) and a rise of one tick reads as 41 to 43 ns. The slack is therefore 43 ns; a rise of two ticks reads as 82 ns or more. For a stage p50 that allows the one-tick step measured and no second one. The p99 and throughput percentages leave about twice the spread measured, because one morning of runs does not bound this host's noise on another day. The decode mean takes stage_p50_pct without the slack. Every one of the eight runs passes against the committed baseline. Refresh steps are in the crate README."
+}

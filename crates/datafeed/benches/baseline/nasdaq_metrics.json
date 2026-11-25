@@ -1,0 +1,69 @@
+{
+  "venue": "nasdaq-itch-v5",
+  "generated_at_unix_s": 1794973632,
+  "host": {
+    "label": "m4pro-macos",
+    "cpu": "",
+    "arch": "aarch64",
+    "os": "macos",
+    "logical_cpus": 12
+  },
+  "capture": {
+    "path": "../../../data/capture/nasdaq/v5/2020-01-30/nasdaq_v5_2020-01-30.bin.zst",
+    "sha256": "44326fa9c5185ce9549017f6a2f517fb64f7fc1ab28a4d573bfcf30dad53ef5f",
+    "max_messages": 100000000,
+    "messages": 100000000
+  },
+  "batch": 64,
+  "throughput": {
+    "records": 110886775,
+    "wall_ns": 41575524417,
+    "msgs_per_sec": 2405261.3022269076,
+    "ns_per_msg": 415.75524417
+  },
+  "stages": {
+    "parse_mean_ns": 5.56239474,
+    "parse_messages": 100000000,
+    "feed": {
+      "unit": "message",
+      "count": 100000000,
+      "mean_ns": 120.54267060000011,
+      "p50_ns": 84,
+      "p90_ns": 209,
+      "p99_ns": 333,
+      "p999_ns": 459,
+      "max_ns": 38666239
+    },
+    "book_apply": {
+      "unit": "mbo-segment",
+      "count": 98239523,
+      "mean_ns": 107.65317973907511,
+      "p50_ns": 83,
+      "p90_ns": 208,
+      "p99_ns": 667,
+      "p999_ns": 1667,
+      "max_ns": 21233663
+    },
+    "book_derive": {
+      "unit": "mbo-segment",
+      "count": 98239523,
+      "mean_ns": 43.616056676089435,
+      "p50_ns": 42,
+      "p90_ns": 42,
+      "p99_ns": 250,
+      "p999_ns": 334,
+      "max_ns": 64684031
+    },
+    "egress": {
+      "unit": "published-record",
+      "count": 308363319,
+      "mean_ns": 20.432260521232756,
+      "p50_ns": 1,
+      "p90_ns": 42,
+      "p99_ns": 42,
+      "p999_ns": 42,
+      "max_ns": 13443071
+    },
+    "normalize_mean_ns": 114.9802758600001
+  }
+}

@@ -1,0 +1,42 @@
+[package]
+name = "polaris-mdex"
+description = "Offline diagnostic and replay explorer for pbn market-data files"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern. Own tests and the binary link by lib name, so changing it would
+# rewrite every import here.
+name = "mdex"
+
+[[bin]]
+name = "mdex"
+path = "src/main.rs"
+
+[dependencies]
+# Records reach mdex through pbn's re-export of the record crate; never depend
+# on that crate directly. A path here, not a workspace entry: pbn stays unwired,
+# so no other member may depend on it.
+pbn = { package = "polaris-format-pbn", path = "../../formats/pbn" }
+clap = { version = "4.5", features = ["derive"] }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# bincode 1.3 is serde-native; 2.x needs a features = ["serde"] shim.
+bincode = "1.3"
+# Logging facade for the lib (reader warns via tracing); the bin installs the
+# stderr fmt subscriber. Both unconditional: mdex is a plain diagnostic binary,
+# no observability pipeline.
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+rstest = "0.26.1"
+# Reader tests write a synthetic stream to a temp file, then open it by path.
+tempfile = "3"

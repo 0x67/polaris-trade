@@ -1,0 +1,14 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+# the reusable lint job asks for pull-requests: read, which the repo's
+# read-only default token omits; without it the run fails at startup.
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    uses: 0x67/ci/.github/workflows/pr-title.yml@main

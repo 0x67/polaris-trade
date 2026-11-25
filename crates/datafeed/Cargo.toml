@@ -1,0 +1,107 @@
+[package]
+name = "polaris-datafeed"
+description = "Market-data feed binary and library: wires adapters, engine, and sinks"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+publish = false
+
+[lib]
+# lib target drops the `polaris-` prefix: the prefix is a registry concern,
+# and the binary and the integration tests link the lib as `datafeed`.
+name = "datafeed"
+
+[[bin]]
+name = "datafeed"
+path = "src/main.rs"
+
+# Per-stage latency and throughput bench over a local NASDAQ capture. It owns
+# its replay loop (no criterion) and reads the stage timers, which exist only
+# with the feature on.
+[[bench]]
+name = "nasdaq_pipeline"
+harness = false
+required-features = ["observability"]
+
+[features]
+default = []
+# Compile-time gate for the whole observability seam. Off by default: a normal
+# build links no observability crate and the per-stage timers are compiled out,
+# so the shipped binary is wire-identical to a build without this code. On, the
+# runtime metrics gate still defaults off (one atomic load per timer) until a
+# config turns it on. See src/obs.rs.
+observability = [
+  "dep:observability-core",
+  "dep:observability",
+  "dep:metrics",
+  "client-soupbintcp/observability",
+]
+
+[dependencies]
+# workspace members. Keys are the workspace keys, which alias the `polaris-`
+# packages back to their lib names, so import paths carry no prefix.
+md-events = { workspace = true }
+orderbook-engine = { workspace = true }
+# `tz` links the bundled-tzdb `BundledTzdb` that resolves zoned session anchors.
+md-pipeline = { workspace = true, features = ["tz"] }
+md-replay = { workspace = true }
+md-capture = { workspace = true }
+proto-nasdaq = { workspace = true, features = ["adapter"] }
+
+# SoupBinTCP client and the transport under it. `tokio` on transport-socket
+# provides the async TCP stream the live source connects with.
+client-soupbintcp = { workspace = true }
+transport-core = { workspace = true }
+transport-socket = { workspace = true, features = ["tokio"] }
+
+# observability (feature-gated). The gate is in `observability_core`. This
+# crate and the client take it from the root `observability-core` entry;
+# `observability` (metrics recorder + exporter) brings its own copy from the
+# tag on the root `observability` entry. While both root entries carry one url
+# and tag, the gate resolves to ONE cargo instance: flipping it here also arms
+# the client's recv metrics.
+observability-core = { workspace = true, optional = true }
+observability = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Sync SIGINT/SIGTERM handler setting a shared stop flag. The live hot loop is
+# sync and only yields to tokio during connect, so a sync flag beats tokio::signal.
+signal-hook = "0.3"
+# Capture manifest integrity hash (per-file sha256). Cold path, close-time only.
+sha2 = { workspace = true }
+# YAML config loader (maintained serde_yaml fork, same API). Config parse only,
+# not a hot path. Extension picks the parser; JSON still loads.
+serde_norway = "0.9.42"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "time",
+  "io-util",
+] }
+# Logging facade + fallback subscriber, both unconditional (NOT behind the
+# `observability` feature). Libraries this binary links emit `tracing` events;
+# the binary installs exactly one subscriber. The feature-off run path installs
+# the stderr fmt subscriber, so tracing-subscriber must always be present.
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+md-pipeline = { workspace = true, features = ["testing"] }
+orderbook-engine = { workspace = true, features = ["testing"] }
+flate2 = { workspace = true }
+# Session-anchor test expectations, computed through jiff's UTC zone so they do
+# not restate the resolver under test.
+jiff = { workspace = true }
+sha2 = { workspace = true }
+# parity harness zstd input variant (bin.zst replays faster than gz)
+zstd = { workspace = true }
+# per-stage percentiles in benches/nasdaq_pipeline
+hdrhistogram = "7.6.0"

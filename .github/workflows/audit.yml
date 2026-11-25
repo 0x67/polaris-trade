@@ -1,0 +1,18 @@
+name: audit
+
+on:
+  pull_request:
+    paths: ['**/Cargo.toml', 'Cargo.lock']
+  push:
+    branches: [main]
+    paths: ['**/Cargo.toml', 'Cargo.lock']
+  schedule:
+    # stagger: sibling repos take 02:05..02:45 in 5-minute steps
+    - cron: '50 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  # RustSec advisory scan of the committed Cargo.lock. New advisories can hit
+  # an unchanged lockfile, hence the daily schedule on top of Cargo changes.
+  audit:
+    uses: 0x67/ci/.github/workflows/rust-audit.yml@main

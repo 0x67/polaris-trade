@@ -1,0 +1,36 @@
+[package]
+name = "polaris-source-websocket"
+description = "WebSocket ingest source over tungstenite: one connection per stream, non-blocking polls, reconnect inside the batch call"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "source_websocket"
+
+[dependencies]
+md-pipeline = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# exact pin: the source reads tungstenite's non-blocking error shapes
+tungstenite = { version = "=0.30.0", features = ["rustls-tls-native-roots"] }
+rustls = "0.23.46"
+rustls-native-certs = "0.8.4"
+
+[dev-dependencies]
+md-pipeline = { workspace = true, features = ["testing"] }
+rcgen = "=0.14.10"
+
+# Custom harness (no criterion): keeps the dep graph small and lets the bench
+# run offline. `cargo bench --bench read_path -- --test` smoke-runs it.
+[[bench]]
+name = "read_path"
+harness = false
+
+[lints]
+workspace = true

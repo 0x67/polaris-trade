@@ -1,0 +1,83 @@
+# Local git hooks. Install once per clone: `lefthook install`.
+# Bypass a single commit with LEFTHOOK=0. Never bypass in shared work.
+# Docs: https://lefthook.dev
+
+# ---------------------------------------------------------------------------
+# pre-commit: cheap, changed-files-only. Run before every commit.
+# ---------------------------------------------------------------------------
+pre-commit:
+  parallel: true
+  commands:
+    branch-name:
+      # Reject direct commits to protected branches and enforce <type>/<slug> shape.
+      run: |
+        # symbolic-ref, not rev-parse: works before the first commit exists
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)
+        case "$branch" in
+          main|master) echo "commit directly to '$branch' blocked. Open feature branch."; exit 1 ;;
+        esac
+        echo "$branch" | grep -qE '^(feat|fix|chore|docs|refactor|test|ci|perf|build|style|revert)/[a-z0-9._/-]+$' \
+          || { echo "branch '$branch' does not match '<type>/<slug>' (e.g. feat/foo-bar)."; exit 1; }
+
+    fmt:
+      glob: "*.rs"
+      # nightly: rustfmt.toml sets unstable import options. Auto-format + re-stage
+      # so imports land standardized, not just checked. Needs nightly rustfmt.
+      run: cargo +nightly fmt --all
+      stage_fixed: true
+
+    clippy:
+      glob: "*.rs"
+      # feature list grows with workspace members, must match CI features job.
+      # Never every feature: DPDK driver feature cannot build on macOS, and
+      # polaris-client-soupbintcp/compressed has its own pre-push command.
+      run: cargo clippy --workspace --all-targets --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/observability,polaris-orderbook/testing,polaris-pipeline/tz,polaris-pipeline/testing,polaris-venue-nasdaq/adapter,polaris-datafeed/observability -- -D warnings
+
+    lat-check:
+      run: lat check
+
+# ---------------------------------------------------------------------------
+# commit-msg: Conventional Commits gate. `convco` = pure-Rust linter.
+# ---------------------------------------------------------------------------
+commit-msg:
+  commands:
+    convco:
+      run: convco check --from-stdin < {1}
+
+# ---------------------------------------------------------------------------
+# pre-push: full test suite. Slow, so runs only on push.
+# ---------------------------------------------------------------------------
+pre-push:
+  commands:
+    no-push-protected:
+      # Blocks push while HEAD is on main/master. Uses branch check instead of
+      # git's pre-push stdin protocol because lefthook does not forward stdin
+      # to commands by default and `while read` would hang.
+      run: |
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo detached)
+        case "$branch" in
+          main|master)
+            echo "direct push from '$branch' blocked. Switch to a feature branch first."
+            exit 1
+            ;;
+        esac
+
+    nextest:
+      # feature list grows with workspace members, must match CI features job.
+      # Never every feature: DPDK driver feature cannot build on macOS, and
+      # polaris-client-soupbintcp/compressed runs in the command below.
+      run: cargo nextest run --workspace --no-fail-fast --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/observability,polaris-orderbook/testing,polaris-pipeline/tz,polaris-pipeline/testing,polaris-venue-nasdaq/adapter,polaris-datafeed/observability
+
+    nextest-soupbintcp-compressed:
+      # compressed is a compile-time switch: with it on, every dependent client
+      # inflates the server stream, so it cannot share the workspace build with
+      # members that speak the plain stream. Same tests as the CI
+      # soupbintcp-compressed job.
+      run: cargo nextest run -p polaris-client-soupbintcp --features tokio,compressed,observability
+
+    check-member-defaults:
+      # the feature list above turns on features of these three members, so the
+      # clippy and nextest commands never build them with default features.
+      # A member built alone resolves to its defaults. Same checks as the CI
+      # member-defaults job.
+      run: cargo check -p polaris-venue-nasdaq && cargo check -p polaris-orderbook && cargo check -p polaris-pipeline

@@ -1,0 +1,42 @@
+[package]
+name = "polaris-transport-io-uring"
+version = "0.2.0" # x-release-please-version
+description = "io_uring UDP receive for Linux: legacy provided buffers, buffer ring or multishot, picked at run time"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core (through transport-core) blocks crates.io until it is published
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "transport_io_uring"
+
+[dependencies]
+transport-core = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true }
+libc = { workspace = true }
+socket2 = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+observability = ["transport-core/observability"]
+
+[dev-dependencies]
+transport-core = { workspace = true, features = ["testing"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "classify"
+harness = false
+
+[lints]
+workspace = true

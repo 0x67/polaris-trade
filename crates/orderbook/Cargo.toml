@@ -1,0 +1,33 @@
+[package]
+name = "polaris-orderbook"
+description = "Venue-agnostic orderbook engine, venue policy hooks, and derived-view computation"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "orderbook_engine"
+
+[features]
+testing = []
+
+[dependencies]
+md-events = { workspace = true }
+rustc-hash = { workspace = true }
+
+# Custom harness (no criterion): keeps the dep graph events-only and lets the
+# bench run offline. `cargo bench --bench book_ops -- --test` smoke-runs it.
+[[bench]]
+name = "book_ops"
+harness = false
+
+[[bench]]
+name = "derive_ops"
+harness = false

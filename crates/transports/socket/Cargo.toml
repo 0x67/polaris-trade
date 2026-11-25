@@ -1,0 +1,48 @@
+[package]
+name = "polaris-transport-socket"
+version = "0.2.0" # x-release-please-version
+description = "Kernel socket transports: sync UDP, tokio UDP and TCP, runtime-free mio UDP and TCP over one receive loop"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core (through transport-core) blocks crates.io until it is published
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "transport_socket"
+
+[dependencies]
+transport-core = { workspace = true }
+socket2 = { workspace = true }
+mio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["net", "rt", "io-util", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+mio = ["dep:mio"]
+observability = ["transport-core/observability"]
+
+[dev-dependencies]
+transport-core = { workspace = true, features = ["testing"] }
+metrics = { workspace = true }
+metrics-util = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
+allocation-counter = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "recv"
+harness = false
+
+[lints]
+workspace = true

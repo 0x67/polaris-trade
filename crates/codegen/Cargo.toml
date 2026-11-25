@@ -1,0 +1,26 @@
+[package]
+name = "polaris-codegen"
+description = "Wire-schema DSL loader and code generator for venue feed protocols"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "proto_codegen"
+
+[[bin]]
+name = "proto-codegen"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml_ng = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }

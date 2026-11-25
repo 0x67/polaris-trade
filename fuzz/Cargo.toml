@@ -1,0 +1,98 @@
+# Detached fuzz crate: own [workspace] table and Cargo.lock, excluded from the
+# parent workspace. Build via `cargo +nightly fuzz build`.
+[package]
+name = "polaris-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+client-moldudp = { package = "polaris-client-moldudp", path = "../crates/clients/moldudp" }
+client-soupbintcp = { package = "polaris-client-soupbintcp", path = "../crates/clients/soupbintcp", features = ["compressed"] }
+proto-nasdaq = { package = "polaris-venue-nasdaq", path = "../crates/venues/nasdaq" }
+proto-sgx = { package = "polaris-venue-sgx", path = "../crates/venues/sgx" }
+# book_model reads AuditOrderState/AuditLevelState behind `testing`
+orderbook-engine = { package = "polaris-orderbook", path = "../crates/orderbook", features = ["testing"] }
+md-events = { package = "polaris-events", path = "../crates/events" }
+pbn = { package = "polaris-format-pbn", path = "../crates/formats/pbn" }
+
+[[bin]]
+name = "moldudp_wire"
+path = "fuzz_targets/moldudp_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "soupbintcp_framing"
+path = "fuzz_targets/soupbintcp_framing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "soupbintcp_compressed"
+path = "fuzz_targets/soupbintcp_compressed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "itch_nasdaq_v5"
+path = "fuzz_targets/itch_nasdaq_v5.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "itch_sgx_v2"
+path = "fuzz_targets/itch_sgx_v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ouch_nasdaq_v5"
+path = "fuzz_targets/ouch_nasdaq_v5.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "book_model"
+path = "fuzz_targets/book_model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stream_walk"
+path = "fuzz_targets/stream_walk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record_roundtrip"
+path = "fuzz_targets/record_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "container"
+path = "fuzz_targets/container.rs"
+test = false
+doc = false
+bench = false
+
+# libFuzzer needs debug info for useful crash traces.
+[profile.release]
+debug = 1
+
+[workspace]

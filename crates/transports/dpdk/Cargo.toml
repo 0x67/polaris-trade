@@ -1,0 +1,37 @@
+[package]
+name = "polaris-transport-dpdk"
+version = "0.2.0" # x-release-please-version
+description = "DPDK poll-mode receive over a caller-initialised EAL, one mbuf per frame"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+# optional git dep on observability-core (through transport-core) blocks crates.io until it is published
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "transport_dpdk"
+
+[dependencies]
+transport-core = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
+pkg-config = { workspace = true }
+
+[features]
+default = []
+# links libdpdk through a C shim; Linux with DPDK dev package only
+driver-dpdk = []
+observability = ["transport-core/observability"]
+
+[dev-dependencies]
+transport-core = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

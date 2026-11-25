@@ -1,0 +1,30 @@
+[package]
+name = "polaris-venue-hyperliquid"
+description = "Hyperliquid perpetuals venue crate: websocket JSON adapter for trades, l2Book and activeAssetCtx"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "venue_hyperliquid"
+
+[dependencies]
+md-events = { workspace = true }
+md-pipeline = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+md-pipeline = { workspace = true, features = ["testing"] }
+
+[[bench]]
+name = "decode"
+harness = false
+
+[lints]
+workspace = true

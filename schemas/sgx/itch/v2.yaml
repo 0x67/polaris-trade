@@ -1,0 +1,199 @@
+# SGX Titan ITCH + GLIMPSE, 14 kinds. Source: TITAN ITCH & GLIMPSE protocol
+# specifications, Release 2.5, 2024-03-18 (Singapore Exchange).
+# Cross-checks: byte_len = 1 (message type byte) + sum of field widths, checked
+# against the doc's own numbered offset/length columns per message.
+# Scope: Modify Order (3.3.5.2) has no field-layout table and no letter code in
+# the Message type reference codes table in this doc version, so it is not a
+# kind here. Order Replace ("U") IS transcribed even though the doc states no
+# Order Replace message is ever observed on the live feed (OUCH order updates
+# emit Delete+Add in ITCH instead) - the doc still defines its wire layout.
+# GLIMPSE SoupBinTCP packet types (login, heartbeat, logout, session framing)
+# are transport-layer, not schema kinds; only the End of Snapshot ("G")
+# application message is included.
+venue: sgx
+protocol: itch
+doc_version: "2.5"
+endianness: be
+
+kinds:
+  - name: Seconds
+    byte: "T"
+    byte_len: 5
+    doc: "Emitted once per second in which any ITCH message was generated, carrying Unix time in seconds. Each later message's `timestamp_nanoseconds` counts from the latest Seconds message."
+    fields:
+      - { name: second, width: 4, class: u32, doc: "Unix time: number of seconds since the start of 1970-01-01 00:00:00 UTC." }
+
+  - name: OrderBookDirectory
+    byte: "R"
+    byte_len: 129
+    doc: "Reference data for one order book, sent at the start of the trading day for every active and future instrument, halted ones included. It is sent again intraday when a book is added or changed, and combination instruments appear here from ITCH 2.0."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_book_id, width: 4, class: u32, doc: "Primary identifier of an order book. Ids of expired books can be reused by new instruments." }
+      - { name: symbol, width: 32, class: alpha, doc: "Instrument short name." }
+      - { name: long_name, width: 32, class: alpha, doc: "Human readable long name of Instrument series." }
+      - { name: isin, width: 12, class: alpha, doc: "ISIN code identifying security." }
+      - { name: financial_product, width: 1, class: code, doc: "Values: 1 = Option, 2 = Forward, 3 = Future, 4 = FRA, 5 = Cash, 6 = Payment, 7 = Exchange Rate, 8 = Interest Rate Swap, 9 = REPO, 10 = Synthetic Box Leg/Reference, 11 = Standard Combination, 12 = Guarantee, 13 = OTC General, 14 = Equity Warrant, 15 = Security Lending." }
+      - { name: trading_currency, width: 3, class: alpha }
+      - { name: price_decimals, width: 2, class: u16, doc: "Decimals in prices for this book. The value 256 marks an instrument traded in fractions of 1/256." }
+      - { name: nominal_value_decimals, width: 2, class: u16, doc: "Number of decimals in Nominal Value." }
+      - { name: odd_lot_size, width: 4, class: u32, doc: "Size of an odd lot for the book. Zero means no odd lot is defined." }
+      - { name: round_lot_size, width: 4, class: u32, doc: "Quantity that represents a round lot for the order book." }
+      - { name: block_lot_size, width: 4, class: u32, doc: "Size of a block lot for the book. Zero means no block lot is defined." }
+      - { name: nominal_value, width: 8, class: u64 }
+      - { name: number_of_legs, width: 1, class: code, doc: "Number of legs, set for combination instruments only." }
+      - { name: commodity_code, width: 4, class: u32, doc: "Commodity code of the underlying. Applies to derivatives other than combinations." }
+      - { name: strike_price, width: 4, class: i32, doc: "Strike price, set for options only." }
+      - { name: expiration_date, width: 4, class: u32, doc: "Expiration date as YYYYMMDD, which also holds any effective expiration date set in the system. Applies to derivatives other than combinations." }
+      - { name: strike_price_decimals, width: 2, class: u16, doc: "Decimals in the strike price for this book, set for options only." }
+      - { name: put_or_call, width: 1, class: code, doc: "Option type. Values: 1 = Call, 2 = Put, 0 = undefined for the book." }
+
+  - name: CombinationOrderBookLeg
+    byte: "M"
+    byte_len: 18
+    doc: "Links a combination order book to one of its leg books, with one message per leg. Resent intraday when combination books are added or changed."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: combination_order_book_id, width: 4, class: u32, doc: "Primary identifier of the combination order book. Ids of expired books can be reused by new instruments." }
+      - { name: leg_order_book_id, width: 4, class: u32, doc: "Order Book ID of Leg instrument." }
+      - { name: leg_side, width: 1, class: code, doc: "Whether to buy or sell the Leg Series when buying or selling the combination. Values: B = As Defined, C = Opposite." }
+      - { name: leg_ratio, width: 4, class: u32, doc: "Relative number of contracts between the combo legs." }
+
+  - name: TickSizeTableEntry
+    byte: "L"
+    byte_len: 25
+    doc: "One row of a book's tick size table; all rows with the same order_book_id make up the table. Price decimals come from that book's OrderBookDirectory message."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book this entry belongs to." }
+      - { name: tick_size, width: 8, class: u64, doc: "Tick size for the price range. The specification gives the tick size table message an 8-byte price field, although this row's own type label reads Numeric." }
+      - { name: price_from, width: 4, class: i32, doc: "Start of price range for this entry." }
+      - { name: price_to, width: 4, class: i32, doc: "End of price range for this entry; zero means infinity." }
+
+  - name: SystemEvent
+    byte: "S"
+    byte_len: 6
+    doc: "Signals a market or data feed handler event."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: event_code, width: 1, class: code, doc: "Values: O = Start of Messages (first message of a trading day, not counting timestamp messages), C = End of Messages (last message of a trading day)." }
+
+  - name: OrderBookState
+    byte: "O"
+    byte_len: 29
+    doc: "Relays a state change (e.g. session state transition) for an order book."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: state_name, width: 20, class: alpha, doc: "Name of Order Book State." }
+
+  - name: AddOrder
+    byte: "A"
+    byte_len: 37
+    doc: "A new order accepted by the trading system and added to the displayed book. Order ids are unique per book and side, so the same id can appear on another book or side."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_id, width: 8, class: u64, doc: "Identifier of the new order, unique per order book and side." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: side, width: 1, class: code, doc: "Type of order being added. Values: B = Buy order, S = Sell order." }
+      - { name: order_book_position, width: 4, class: u32, doc: "Rank within the Order Book." }
+      - { name: quantity, width: 8, class: u64, doc: "Visible quantity of the order, or 0 for an order with an undisclosed quantity." }
+      - { name: price, width: 4, class: i32, doc: "Display price of the new order. A value with only bit 31 set (decimal -2147483648) means no price is available, and in Add Order it also marks a market order." }
+      - { name: order_attributes, width: 2, class: u16, doc: "Extra order attributes as a bitmap, so several values can be set together. Values: 0 = Not applicable, 8192 = Bait/implied order." }
+      - { name: lot_type, width: 1, class: code, doc: "Lot Type. Values: 2 = Round Lot." }
+
+  - name: OrderExecuted
+    byte: "E"
+    byte_len: 52
+    doc: "An order on the book is executed in whole or in part. A remainder of the incoming order that is not filled rests on the book after the match, and repeated Order Executed messages for one order add up."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_id, width: 8, class: u64, doc: "Order ID associated with the executed order." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: side, width: 1, class: code, doc: "Type of order being added. Values: B = Buy order, S = Sell order." }
+      - { name: executed_quantity, width: 8, class: u64, doc: "Quantity being executed." }
+      - { name: match_id, width: 8, class: u64, doc: "Assigned by the system to each match executed." }
+      - { name: combo_group_id, width: 4, class: u32, doc: "Groups Combination Order Book executions together with the trades in the constituent Order Books." }
+      - { name: reserved0, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+      - { name: reserved1, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+
+  - name: OrderExecutedWithPrice
+    byte: "C"
+    byte_len: 58
+    doc: "An order on the book is executed at a price other than its display price, typically in an auction uncross. Combination executions always use this message with printable N, and their leg trades go out separately as Trade messages with printable Y, so volume is not counted twice."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_id, width: 8, class: u64, doc: "Order ID associated with the executed order." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: side, width: 1, class: code, doc: "Type of order being added. Values: B = Buy order, S = Sell order." }
+      - { name: executed_quantity, width: 8, class: u64, doc: "Quantity being executed." }
+      - { name: match_id, width: 8, class: u64, doc: "Assigned by the system to each match executed." }
+      - { name: combo_group_id, width: 4, class: u32, doc: "Groups Combination Order Book executions together with the trades in the constituent Order Books." }
+      - { name: reserved0, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+      - { name: reserved1, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+      - { name: trade_price, width: 4, class: i32, doc: "Price at which the execution occurred." }
+      - { name: occurred_at_cross, width: 1, class: code, doc: "Values: Y = Yes, trade occurred at the cross. N = No, trade occurred at continuous market." }
+      - { name: printable, width: 1, class: code, doc: "Whether the trade should be included in trade tickers and volume calculations. Values: Y = Printable, N = Non-printable." }
+
+  - name: OrderReplace
+    byte: "U"
+    byte_len: 36
+    doc: "An order on the book is replaced. The unfilled quantity of the original order is gone and must be removed, while side and order book id stay as they were. The specification says this message is never seen on the live feed, since an order update is sent as an Order Delete followed by an Add Order."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_id, width: 8, class: u64, doc: "Original id of the replaced order, unique per order book and side and unchanged by the replace." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: side, width: 1, class: code, doc: "Type of order being added. Values: B = Buy order, S = Sell order." }
+      - { name: new_order_book_position, width: 4, class: u32, doc: "New Rank within Order Book." }
+      - { name: quantity, width: 8, class: u64, doc: "New visible quantity of the order." }
+      - { name: price, width: 4, class: i32, doc: "New Price of the order." }
+      - { name: order_attributes, width: 2, class: u16, doc: "Extra order attributes as a bitmap, so several values can be set together. Values: 0 = Not applicable, 8192 = Bait/implied order." }
+
+  - name: OrderDelete
+    byte: "D"
+    byte_len: 18
+    doc: "An order on the book is deleted and must be removed with no quantity left. Also sent when orders are suspended after a connection loss."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_id, width: 8, class: u64, doc: "Id of the deleted order, unique per order book and side." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: side, width: 1, class: code, doc: "Type of order being added. Values: B = Buy order, S = Sell order." }
+
+  - name: Trade
+    byte: "P"
+    byte_len: 50
+    doc: "Execution details for a match on a non-displayable order or for a single cross trade. No Add Order precedes a non-displayed order, so Order Executed cannot report it, and repeated Trade messages for one order add up."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: match_id, width: 8, class: u64, doc: "Assigned by the system to each match executed." }
+      - { name: combo_group_id, width: 4, class: u32, doc: "Groups Combination Order Book executions together with the trades in the constituent Order Books." }
+      - { name: side, width: 1, class: code, doc: "Type of non-display order being matched. Values: B = Buy order, S = Sell order; set to blank (space) for anonymous markets." }
+      - { name: quantity, width: 8, class: u64, doc: "Quantity being matched in this execution." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: trade_price, width: 4, class: i32 }
+      - { name: reserved0, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+      - { name: reserved1, width: 7, class: alpha, doc: "Reserved; no meaning defined in this venue doc version." }
+      - { name: printable, width: 1, class: code, doc: "Whether the trade should be included in trade tickers and volume calculations. Values: Y = printable, N = non-printable." }
+      - { name: occurred_at_cross, width: 1, class: code, doc: "Values: Y = Trade occurred at the cross, N = Trade occurred at continuous market." }
+
+  - name: EquilibriumPriceUpdate
+    byte: "Z"
+    byte_len: 53
+    doc: "Auction equilibrium price and quantity changes for an order book. A Price field with only bit 31 set (decimal -2147483648) means no price is available."
+    fields:
+      - { name: timestamp_nanoseconds, width: 4, class: u32, doc: "Nanoseconds portion of the timestamp." }
+      - { name: order_book_id, width: 4, class: u32, doc: "The Order Book ID." }
+      - { name: available_bid_quantity_at_equilibrium_price, width: 8, class: u64, doc: "Quantity at equilibrium price on the bid side." }
+      - { name: available_ask_quantity_at_equilibrium_price, width: 8, class: u64, doc: "Quantity at equilibrium price on the ask side. The specification's table text says 'bid side' for this row as well, so the field name and position decide." }
+      - { name: equilibrium_price, width: 4, class: i32 }
+      - { name: best_bid_price, width: 4, class: i32 }
+      - { name: best_ask_price, width: 4, class: i32 }
+      - { name: best_bid_quantity, width: 8, class: u64 }
+      - { name: best_ask_quantity, width: 8, class: u64 }
+
+  - name: EndOfSnapshot
+    byte: "G"
+    byte_len: 21
+    doc: "GLIMPSE only: gives the SoupBinTCP sequence number at which to resume when connecting to the real-time ITCH feed after the snapshot."
+    fields:
+      - { name: sequence_number, width: 20, class: alpha, doc: "SoupBinTCP sequence number at the time of the snapshot, as ASCII text, used to log in to the real-time feed." }

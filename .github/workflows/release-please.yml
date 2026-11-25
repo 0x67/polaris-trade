@@ -1,0 +1,19 @@
+name: release-please
+
+# One lockstep version for every crate: release-please bumps each annotated
+# Cargo.toml version line and tags the repo vX.Y.Z. The shared workflow
+# refreshes Cargo.lock on the release PR, which no updater can do itself.
+on:
+  push:
+    branches: [main]
+  # manual trigger for a release after a token rotation, or any time the run
+  # has to be repeated without a push
+  workflow_dispatch:
+
+jobs:
+  release-please:
+    uses: 0x67/ci/.github/workflows/release-please.yml@main
+    with:
+      update-lock: true
+    secrets:
+      release-token: ${{ secrets.RELEASE_PLZ_TOKEN }}

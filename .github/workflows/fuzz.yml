@@ -1,0 +1,64 @@
+name: fuzz
+
+# Fuzz targets for the moldudp and soupbintcp wire codecs, the NASDAQ and SGX
+# venue parsers, the order-book engine and the pbn format. check builds and
+# replays the committed corpus on PRs touching those sources or the fuzz crate,
+# blocking. discover runs a time-bounded search only when that code lands on
+# main, plus manual dispatch, advisory. No schedule.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/clients/moldudp/src/**'
+      - 'crates/clients/soupbintcp/src/**'
+      - 'crates/venues/*/src/**'
+      # the venue targets include the owned baselines by path
+      - 'crates/venues/*/tests/support/**'
+      - 'crates/orderbook/src/**'
+      - 'crates/events/src/**'
+      - 'crates/formats/pbn/src/**'
+      # dependency versions reach the fuzz build too
+      - 'crates/clients/*/Cargo.toml'
+      - 'crates/venues/*/Cargo.toml'
+      - 'crates/orderbook/Cargo.toml'
+      - 'crates/events/Cargo.toml'
+      - 'crates/formats/pbn/Cargo.toml'
+      - 'Cargo.toml'
+      - 'fuzz/**'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/clients/moldudp/src/**'
+      - 'crates/clients/soupbintcp/src/**'
+      - 'crates/venues/*/src/**'
+      # the venue targets include the owned baselines by path
+      - 'crates/venues/*/tests/support/**'
+      - 'crates/orderbook/src/**'
+      - 'crates/events/src/**'
+      - 'crates/formats/pbn/src/**'
+      # dependency versions reach the fuzz build too
+      - 'crates/clients/*/Cargo.toml'
+      - 'crates/venues/*/Cargo.toml'
+      - 'crates/orderbook/Cargo.toml'
+      - 'crates/events/Cargo.toml'
+      - 'crates/formats/pbn/Cargo.toml'
+      - 'Cargo.toml'
+      - 'fuzz/**'
+  workflow_dispatch:
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    uses: 0x67/ci/.github/workflows/rust-fuzz.yml@main
+    with:
+      mode: check
+      advisory: false
+
+  discover:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    uses: 0x67/ci/.github/workflows/rust-fuzz.yml@main
+    with:
+      mode: discover
+      # 10 targets x 120 s leaves room for the build inside the 30-minute job
+      # timeout
+      max-total-time: 120

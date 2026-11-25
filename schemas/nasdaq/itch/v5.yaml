@@ -1,0 +1,315 @@
+# NASDAQ TotalView-ITCH 5.0, all 23 message kinds. Source: NASDAQ TotalView-ITCH 5.0 specification.
+# The specification wins layout conflicts. Table numbers below refer to its own numbering.
+# Cross-checks: byte_len = 1 (message type byte) + sum of field widths, checked
+# against the doc's own offset/length columns per message.
+venue: nasdaq
+protocol: itch
+doc_version: "5.0"
+endianness: be
+
+kinds:
+  - name: SystemEvent
+    byte: "S"
+    byte_len: 12
+    doc: "Signals a market or data feed handler event such as start or end of system/market hours; Table 2 below lists the full set of event codes."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Always 0 for this message; not stock dependent." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: event_code, width: 1, class: code, doc: "O = Start of Messages (first message sent in any trading day, outside of timestamp messages), S = Start of System hours (Nasdaq open and ready to accept orders), Q = Start of Market hours (Market Hours orders available for execution), M = End of Market hours (Market Hours orders no longer available for execution), E = End of System hours (Nasdaq closed, no new orders accepted; Broken Trade and Order Delete messages may still follow), C = End of Messages (always the last message sent in any trading day)." }
+
+  - name: StockDirectory
+    byte: "R"
+    byte_len: 39
+    doc: "Reference data for an active symbol, disseminated at the start of each trading day; populates the Financial Status Indicator and Market Category display fields for Nasdaq-listed issues."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code uniquely assigned to the security symbol for the day." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Security symbol for the issue in the Nasdaq execution system." }
+      - { name: market_category, width: 1, class: code, doc: "Listing market or listing market tier for the issue. Nasdaq-listed instruments: Q = Nasdaq Global Select Market, G = Nasdaq Global Market, S = Nasdaq Capital Market. Non-Nasdaq-listed instruments: N = New York Stock Exchange (NYSE), A = NYSE American, P = NYSE Arca, Z = BATS Z Exchange, V = Investors' Exchange, LLC. Blank = Not available." }
+      - { name: financial_status_indicator, width: 1, class: code, doc: "For Nasdaq-listed issues, indicates when a firm is not in compliance with Nasdaq continued listing requirements: D = Deficient, E = Delinquent, Q = Bankrupt, S = Suspended, G = Deficient and Bankrupt, H = Deficient and Delinquent, J = Delinquent and Bankrupt, K = Deficient, Delinquent and Bankrupt, C = Creations and/or Redemptions Suspended for Exchange Traded Product, N = Normal (Default): Issuer is NOT Deficient, Delinquent, or Bankrupt. Non-Nasdaq-listed instruments: Not available, firms should refer to SIAC feeds for the code if needed." }
+      - { name: round_lot_size, width: 4, class: u32, doc: "Number of shares that represent a round lot for the issue." }
+      - { name: round_lots_only, width: 1, class: code, doc: "Indicates if Nasdaq system limits order entry for the issue. Y = Nasdaq system only accepts round lots. N = Nasdaq system does not have any order size restrictions for this security; odd and mixed lot orders are allowed." }
+      - { name: issue_classification, width: 1, class: code, doc: "Security class for the issue as assigned by Nasdaq. A = American Depositary Share, B = Bond, C = Common Stock, F = Depository Receipt, I = 144A, L = Limited Partnership, N = Notes, O = Ordinary Share, P = Preferred Stock, Q = Other Securities, R = Right, S = Shares of Beneficial Interest, T = Convertible Debenture, U = Unit, V = Units/Benif Int, W = Warrant." }
+      - { name: issue_sub_type, width: 2, class: alpha, doc: "Security sub-type for the issue as assigned by Nasdaq. A = Preferred Trust Securities, AI = Alpha Index ETNs, B = Index Based Derivative, C = Common Shares, CB = Commodity Based Trust Shares, CF = Commodity Futures Trust Shares, CL = Commodity-Linked Securities, CM = Commodity Index Trust Shares, CO = Collateralized Mortgage Obligation, CT = Currency Trust Shares, CU = Commodity-Currency-Linked Securities, CW = Currency Warrants, D = Global Depositary Shares, E = ETF-Portfolio Depositary Receipt, EG = Equity Gold Shares, EI = ETN-Equity Index-Linked Securities, EM = NextShares Exchange Traded Managed Fund, EN = Exchange Traded Notes, EU = Equity Units, F = HOLDRS, FI = ETN-Fixed Income-Linked Securities, FL = ETN-Futures-Linked Securities, G = Global Shares, I = ETF-Index Fund Shares, IR = Interest Rate, IW = Index Warrant, IX = Index-Linked Exchangeable Notes, J = Corporate Backed Trust Security, L = Contingent Litigation Right, LL = Limited Liability Company (LLC) securities, M = Equity-Based Derivative, MF = Managed Fund Shares, ML = ETN-Multi-Factor Index-Linked Securities, MT = Managed Trust Securities, N = NY Registry Shares, O = Open Ended Mutual Fund, P = Privately Held Security, PP = Poison Pill, PU = Partnership Units, Q = Closed-End Funds, R = Reg-S, RC = Commodity-Redeemable Commodity-Linked Securities, RF = ETN-Redeemable Futures-Linked Securities, RT = REIT, RU = Commodity-Redeemable Currency-Linked Securities, S = SEED, SC = Spot Rate Closing, SI = Spot Rate Intraday, T = Tracking Stock, TC = Trust Certificates, TU = Trust Units, U = Portal, V = Contingent Value Right, W = Trust Issued Receipts, WC = World Currency Option, X = Trust, Y = Other, Z = Not Applicable." }
+      - { name: authenticity, width: 1, class: code, doc: "Denotes if an issue or quoting participant record is set up in Nasdaq systems in a live/production, test, or demo state; firms should only show live issues and quoting participants on public quotation displays. P = Live/Production, T = Test." }
+      - { name: short_sale_threshold_indicator, width: 1, class: code, doc: "Indicates if a security is subject to mandatory close-out of short sales under SEC Rule 203(b)(3). Y = Issue is restricted under SEC Rule 203(b)(3), N = Issue is not restricted, blank = Threshold Indicator not available." }
+      - { name: ipo_flag, width: 1, class: code, doc: "Indicates if the Nasdaq security is set up for IPO release; helps Nasdaq market participant firms comply with FINRA Rule 5131(b). Nasdaq-listed instruments: Y = set up as a new IPO security, N = not set up as a new IPO security. Non-Nasdaq-listed instruments: blank = Not available." }
+      - { name: luld_reference_price_tier, width: 1, class: code, doc: "Indicates which Limit Up/Limit Down price band calculation parameter applies to the instrument. 1 = Tier 1 NMS Stocks and select ETPs, 2 = Tier 2 NMS Stocks, blank = Not available." }
+      - { name: etp_flag, width: 1, class: code, doc: "Indicates whether the security is an exchange traded product (ETP). Y = Instrument is an ETP, N = Instrument is not an ETP, blank = Not available." }
+      - { name: etp_leverage_factor, width: 4, class: u32, doc: "Tracks the integral relationship of the ETP to the underlying index; rounded down to the nearest integer, so leverage factor 1 covers 1 to 1.99. Used for LULD Tier I price band calculation." }
+      - { name: inverse_indicator, width: 1, class: code, doc: "Indicates the directional relationship between the ETP and its underlying index. Y = ETP is an Inverse ETP, N = ETP is not an Inverse ETP. Example: leverage factor 3 with inverse Y means the ETP decreases by a factor of 3 when the underlying index increases by 1." }
+
+  - name: StockTradingAction
+    byte: "H"
+    byte_len: 25
+    doc: "Reports the current trading status of a security to the trading community; sent as a pre-open spin for every eligible security and again whenever a security's status changes intraday."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: trading_state, width: 1, class: code, doc: "Current trading state for the stock. H = Halted across all U.S. equity markets/SROs, P = Paused across all U.S. equity markets/SROs (Nasdaq-listed securities only), Q = Quotation only period for cross-SRO halt or pause, T = Trading on Nasdaq." }
+      - { name: reserved, width: 1, class: code, doc: "Reserved." }
+      - { name: reason, width: 4, class: alpha, doc: "Trading Action reason code. T1 = Halt News Pending, T2 = Halt News Disseminated, T5 = Single Security Trading Pause In Effect, T6 = Regulatory Halt, Extraordinary Market Activity, T8 = Halt ETF, T12 = Trading Halted, For Information Requested by Listing Market, H4 = Halt Non-Compliance, H9 = Halt Filings Not Current, H10 = Halt SEC Trading Suspension, H11 = Halt Regulatory Concern, O1 = Operations Halt, Contact Market Operations, LUDP = Volatility Trading Pause, LUDS = Volatility Trading Pause, Straddle Condition, MWC1 = Market Wide Circuit Breaker Halt, Level 1, MWC2 = Market Wide Circuit Breaker Halt, Level 2, MWC3 = Market Wide Circuit Breaker Halt, Level 3, MWC0 = Market Wide Circuit Breaker Halt, Carry over from previous day, IPO1 = IPO Issue Not Yet Trading, M1 = Corporate Action, M2 = Quotation Not Available, blank = Reason Not Available, T3 = News and Resumption Times, T7 = Single Security Trading Pause/Quotation Only Period, R4 = Qualifications Issues Reviewed/Resolved, Quotations/Trading to Resume, R9 = Filing Requirements Satisfied/Resolved, Quotations/Trading To Resume, C3 = Issuer News Not Forthcoming, Quotations/Trading To Resume, C4 = Qualifications Halt ended, Maintenance Requirements Met, Resume, C9 = Qualifications Halt Concluded, Filings Met, Quotes/Trades To Resume, C11 = Trade Halt Concluded By Other Regulatory Auth., Quotes/Trades Resume, MWCQ = Market Wide Circuit Breaker Resumption, R1 = New Issue Available, R2 = Issue Available, IPOQ = IPO Security Released for Quotation (Nasdaq Securities Only), IPOE = IPO Security, Positioning Window Extension (Nasdaq Securities Only)." }
+
+  - name: RegShoRestriction
+    byte: "Y"
+    byte_len: 20
+    doc: "Reg SHO Short Sale Price Test Restricted Indicator; carries the Rule 201 status for an issue, sent as a pre-opening spin for Nasdaq-listed issues and relayed on intraday status changes."
+    fields:
+      - { name: locate_code, width: 2, class: u16, doc: "Locate code identifying the security. Table's own field label; other kinds in this schema call the same concept stock_locate." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: reg_sho_action, width: 1, class: code, doc: "Reg SHO Short Sale Price Test Restriction status for the issue at the time of dissemination. 0 = No price test in place, 1 = Reg SHO Short Sale Price Test Restriction in effect due to an intra-day price drop in security, 2 = Reg SHO Short Sale Price Test Restriction remains in effect." }
+
+  - name: MarketParticipantPosition
+    byte: "L"
+    byte_len: 26
+    doc: "Carries a Nasdaq market participant firm's Primary Market Maker status, Market Maker mode, and Market Participant state for one issue; sent as a spin at the start of each trading day and again on status changes."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: mpid, width: 4, class: alpha, doc: "Market participant identifier for which the position message is being generated." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: primary_market_maker, width: 1, class: code, doc: "Indicates if the market participant firm qualifies as a Primary Market Maker under Nasdaq marketplace rules. Y = primary market maker, N = non-primary market maker." }
+      - { name: market_maker_mode, width: 1, class: code, doc: "Quoting participant's registration status under SEC Rules 101 and 104 of Regulation M. N = normal, P = passive, S = syndicate, R = pre-syndicate, L = penalty." }
+      - { name: market_participant_state, width: 1, class: code, doc: "Market participant's current registration status in the issue. A = Active, E = Excused/Withdrawn, W = Withdrawn, S = Suspended, D = Deleted." }
+
+  - name: MwcbDeclineLevel
+    byte: "V"
+    byte_len: 35
+    doc: "Informs data recipients what the day's Market-Wide Circuit Breaker (MWCB) breach points are set to."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Always set to 0." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: level_1, width: 8, class: u64, doc: "MWCB Level 1 value; Price (8) field, an integer with an associated decimal precision per the Data Types section. That section only spells out the precision for Price (4) fields, so the exact decimal count for this 8-byte price is not restated in the doc." }
+      - { name: level_2, width: 8, class: u64, doc: "MWCB Level 2 value; same Price (8) caveat as level_1." }
+      - { name: level_3, width: 8, class: u64, doc: "MWCB Level 3 value; same Price (8) caveat as level_1." }
+
+  - name: MwcbStatus
+    byte: "W"
+    byte_len: 12
+    doc: "Informs data recipients when a Market-Wide Circuit Breaker (MWCB) has breached one of the established levels."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Always set to 0." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: breached_level, width: 1, class: code, doc: "MWCB Level that was breached. 1 = Level 1, 2 = Level 2, 3 = Level 3." }
+
+  - name: IpoQuotingPeriodUpdate
+    byte: "K"
+    byte_len: 28
+    doc: "Indicates the anticipated IPO quotation release time of a security."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Always set to 0." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: ipo_quotation_release_time, width: 4, class: u32, doc: "IPO release time, in seconds since midnight, to the nearest second. If the quotation period is being canceled/postponed, this is set to 0 (and ipo_price is set to 0)." }
+      - { name: ipo_quotation_release_qualifier, width: 1, class: code, doc: "A = Anticipated Quotation Release Time, used when Nasdaq Market Operations initially enters the IPO instrument for release. C = IPO Release Canceled/Postponed, used when Nasdaq Market Operations cancels or postpones the release of the new IPO instrument." }
+      - { name: ipo_price, width: 4, class: u32, doc: "IPO Price used for intraday net change calculations. Given in decimal format with 6 whole-number places followed by 4 decimal digits; the whole-number portion is padded on the left with spaces, the decimal portion is padded on the right with zeroes, and the decimal point is implied by position rather than encoded." }
+
+  - name: LuldAuctionCollar
+    byte: "J"
+    byte_len: 35
+    doc: "Indicates the auction collar thresholds within which a paused security can reopen following a Limit Up-Limit Down (LULD) trading pause."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds past midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: auction_collar_reference_price, width: 4, class: u32, doc: "Reference price used to set the Auction Collars; Price (4) field." }
+      - { name: upper_auction_collar_price, width: 4, class: u32, doc: "Price of the Upper Auction Collar Threshold; Price (4) field." }
+      - { name: lower_auction_collar_price, width: 4, class: u32, doc: "Price of the Lower Auction Collar Threshold; Price (4) field." }
+      - { name: auction_collar_extension, width: 4, class: u32, doc: "Number of extensions to the Reopening Auction." }
+
+  - name: OperationalHalt
+    byte: "h"
+    byte_len: 21
+    doc: "Indicates the current Operational Status of a security at one of Nasdaq's three market centers; specific to that market center and does not interrupt trading of the instrument elsewhere."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code uniquely assigned to the security symbol for the day." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Security symbol for the issue in the Nasdaq execution system." }
+      - { name: market_code, width: 1, class: code, doc: "Q = Nasdaq, B = BX, X = PSX." }
+      - { name: operational_halt_action, width: 1, class: code, doc: "H = Operationally Halted on the identified Market, T = Operational Halt has been lifted and Trading resumed." }
+
+  - name: AddOrderNoMpid
+    byte: "A"
+    byte_len: 36
+    doc: "Adds an unattributed order to the displayable book; carries a day-unique Order Reference Number used to track the order. Generated for unattributed orders accepted by the Nasdaq system."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Unique reference number assigned to the new order at the time of receipt." }
+      - { name: buy_sell_indicator, width: 1, class: code, doc: "B = Buy Order, S = Sell Order." }
+      - { name: shares, width: 4, class: u32, doc: "Total number of shares associated with the order being added to the book." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: price, width: 4, class: u32, doc: "Display price of the new order; Price (4) field." }
+
+  - name: AddOrderMpidAttribution
+    byte: "F"
+    byte_len: 40
+    doc: "Add Order message for attributed orders and quotations; adds the entering market participant's identifier to the base Add Order fields."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Unique reference number assigned to the new order at the time of receipt." }
+      - { name: buy_sell_indicator, width: 1, class: code, doc: "B = buy order, S = sell order." }
+      - { name: shares, width: 4, class: u32, doc: "Total number of shares associated with the order being added to the book." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: price, width: 4, class: u32, doc: "Display price of the new order; Price (4) field." }
+      - { name: attribution, width: 4, class: alpha, doc: "Nasdaq market participant identifier associated with the entered order." }
+
+  - name: OrderExecuted
+    byte: "E"
+    byte_len: 31
+    doc: "An order on the book is executed in whole or in part; multiple messages for the same order reference number are cumulative."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Unique reference number assigned to the order at the time of receipt." }
+      - { name: executed_shares, width: 4, class: u32, doc: "Number of shares executed." }
+      - { name: match_number, width: 8, class: u64, doc: "Nasdaq generated day-unique Match Number of this execution; also referenced in the Broken Trade message." }
+
+  - name: OrderExecutedWithPrice
+    byte: "C"
+    byte_len: 36
+    doc: "An order on the book is executed in whole or in part at a price different from its display price; carries an explicit execution price alongside the base Order Executed fields."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Unique reference number assigned to the order at the time of receipt." }
+      - { name: executed_shares, width: 4, class: u32, doc: "Number of shares executed." }
+      - { name: match_number, width: 8, class: u64, doc: "Nasdaq generated day-unique Match Number of this execution; also referenced in the Broken Trade message." }
+      - { name: printable, width: 1, class: code, doc: "Whether the execution should be reflected on time and sales displays and volume calculations. N = Non-Printable, Y = Printable." }
+      - { name: execution_price, width: 4, class: u32, doc: "Price at which the order execution occurred; Price (4) field." }
+
+  - name: OrderCancel
+    byte: "X"
+    byte_len: 23
+    doc: "An order on the book is reduced by a partial cancellation."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Reference number of the order being canceled." }
+      - { name: cancelled_shares, width: 4, class: u32, doc: "Number of shares removed from the display size of the order as a result of the cancellation." }
+
+  - name: OrderDelete
+    byte: "D"
+    byte_len: 19
+    doc: "An order on the book is cancelled in full; all remaining shares are no longer accessible and the order must be removed from the book."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Reference number of the order being canceled." }
+
+  - name: OrderReplace
+    byte: "U"
+    byte_len: 35
+    doc: "An order on the book has been cancel-replaced. Side, stock symbol, and attribution cannot change and are not resent; firms must retain them from the original Add Order message."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: original_order_reference_number, width: 8, class: u64, doc: "Original order reference number of the order being replaced." }
+      - { name: new_order_reference_number, width: 8, class: u64, doc: "New reference number for this order at time of replacement; used for all subsequent updates to this order." }
+      - { name: shares, width: 4, class: u32, doc: "New total displayed quantity." }
+      - { name: price, width: 4, class: u32, doc: "New display price for the order; Price (4) field." }
+
+  - name: Trade
+    byte: "P"
+    byte_len: 44
+    doc: "Trade Message (Non-Cross): reports a match of a non-displayable order type. Trade Messages for the same order are cumulative and do not affect the book."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: order_reference_number, width: 8, class: u64, doc: "Unique reference number assigned to the order on the book being executed. Effective December 6, 2010 this field is populated as zero (null-filled bytes in the binary feed)." }
+      - { name: buy_sell_indicator, width: 1, class: code, doc: "Type of non-display order on the book being matched. B = Buy Order, S = Sell Order. Effective 07/14/2014 this field is always B regardless of the resting side." }
+      - { name: shares, width: 4, class: u32, doc: "Number of shares being matched in this execution." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: price, width: 4, class: u32, doc: "Match price of the order; Price (4) field." }
+      - { name: match_number, width: 8, class: u64, doc: "Nasdaq generated session-unique Match Number for this trade; also referenced in the Broken Trade message." }
+
+  - name: CrossTrade
+    byte: "Q"
+    byte_len: 40
+    doc: "Reports completion of a Nasdaq cross process for a security following the Opening, Closing, or EMC cross events; may show shares as zero if order interest is insufficient to conduct the cross."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: shares, width: 8, class: u64, doc: "Number of shares matched in the Nasdaq Cross." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: cross_price, width: 4, class: u32, doc: "Price at which the cross occurred; Price (4) field." }
+      - { name: match_number, width: 8, class: u64, doc: "Nasdaq generated day-unique Match Number of this execution." }
+      - { name: cross_type, width: 1, class: code, doc: "Nasdaq cross session for which the message is being generated. O = Nasdaq Opening Cross, C = Nasdaq Closing Cross, H = Cross for IPO and halted/paused securities." }
+
+  - name: BrokenTrade
+    byte: "B"
+    byte_len: 19
+    doc: "An execution on Nasdaq is broken as clearly erroneous; a trade break is final and cannot be reinstated."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: match_number, width: 8, class: u64, doc: "Match Number of the execution that was broken; refers to a Match Number from a previously transmitted Order Executed, Order Executed With Price, or Trade message." }
+
+  - name: NetOrderImbalanceIndicator
+    byte: "I"
+    byte_len: 50
+    doc: "Net Order Imbalance Indicator (NOII); disseminates the indicative clearing price and net order imbalance ahead of the Nasdaq Opening and Closing Crosses, and during Extended Trading Close."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: paired_shares, width: 8, class: u64, doc: "Total number of shares eligible to be matched at the Current Reference Price." }
+      - { name: imbalance_shares, width: 8, class: u64, doc: "Number of shares not paired at the Current Reference Price." }
+      - { name: imbalance_direction, width: 1, class: code, doc: "Market side of the order imbalance. B = buy imbalance, S = sell imbalance, N = no imbalance, O = Insufficient orders to calculate, P = Paused." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: far_price, width: 4, class: u32, doc: "Hypothetical auction-clearing price for cross orders only; Price (4) field." }
+      - { name: near_price, width: 4, class: u32, doc: "Hypothetical auction-clearing price for cross orders as well as continuous orders; Price (4) field." }
+      - { name: current_reference_price, width: 4, class: u32, doc: "Price at which the NOII shares are being calculated; Price (4) field." }
+      - { name: cross_type, width: 1, class: code, doc: "Nasdaq cross for which the NOII message is generated. O = Nasdaq Opening Cross, C = Nasdaq Closing Cross, H = Cross for IPO and halted/paused securities, A = Extended Trading Close." }
+      - { name: price_variation_indicator, width: 1, class: code, doc: "Absolute value of the percentage deviation of the Near Indicative Clearing Price from the nearest Current Reference Price. L = Less than 1%, 1 = 1 to 1.99%, 2 = 2 to 2.99%, 3 = 3 to 3.99%, 4 = 4 to 4.99%, 5 = 5 to 5.99%, 6 = 6 to 6.99%, 7 = 7 to 7.99%, 8 = 8 to 8.99%, 9 = 9 to 9.99%, A = 10 to 19.99%, B = 20 to 29.99%, C = 30% or greater, blank = Cannot be calculated." }
+
+  - name: RetailPriceImprovementIndicator
+    byte: "N"
+    byte_len: 20
+    doc: "Retail Price Improvement Indicator (RPII); indicates whether Retail Price Improvement orders are available on a security."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: interest_flag, width: 1, class: code, doc: "B = RPI orders available on the buy side, S = RPI orders available on the sell side, A = RPI orders available on both sides (buy and sell), N = No RPI orders available." }
+
+  - name: DirectListingCapitalRaisePriceDiscovery
+    byte: "O"
+    byte_len: 48
+    doc: "Direct Listing with Capital Raise (DLCR) price discovery message; disseminated once per second once a DLCR security's volatility test has successfully passed."
+    fields:
+      - { name: stock_locate, width: 2, class: u16, doc: "Locate code identifying the security." }
+      - { name: tracking_number, width: 2, class: u16, doc: "Nasdaq internal tracking number." }
+      - { name: timestamp, width: 6, class: u48, doc: "Nanoseconds since midnight." }
+      - { name: stock, width: 8, class: alpha, doc: "Stock symbol, right padded with spaces." }
+      - { name: open_eligibility_status, width: 1, class: code, doc: "Indicates if the security is eligible to be released for trading. N = Not Eligible, Y = Eligible." }
+      - { name: minimum_allowable_price, width: 4, class: u32, doc: "20% below Registration Statement Lower Price; Price (4) field." }
+      - { name: maximum_allowable_price, width: 4, class: u32, doc: "80% above Registration Statement Highest Price; Price (4) field." }
+      - { name: near_execution_price, width: 4, class: u32, doc: "Current reference price when the DLCR volatility test has successfully passed; Price (4) field." }
+      - { name: near_execution_time, width: 8, class: u64, doc: "Time at which the near execution price was set." }
+      - { name: lower_price_range_collar, width: 4, class: u32, doc: "Price of the Lower Auction Collar Threshold, 10% below the Near Execution Price; Price (4) field." }
+      - { name: upper_price_range_collar, width: 4, class: u32, doc: "Price of the Upper Auction Collar Threshold, 10% above the Near Execution Price; Price (4) field." }

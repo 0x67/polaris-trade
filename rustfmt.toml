@@ -1,0 +1,27 @@
+# Deterministic import layout across the workspace.
+# Enforced by lefthook pre-commit (auto-fix + re-stage) and the CI `fmt` job (check).
+#
+# Both keys are UNSTABLE rustfmt features: they only apply on NIGHTLY rustfmt.
+# Stable rustfmt silently ignores them, so always format with nightly:
+#   cargo +nightly fmt
+# Install once per machine:
+#   rustup toolchain install nightly --component rustfmt
+#
+# Build, clippy, and test stay on the pinned stable channel in rust-toolchain.toml.
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+
+# generated code is emitted byte-exact by proto-codegen; formatting it here would
+# fight the drift gate on every nightly rustfmt version bump. also nightly-only.
+ignore = [
+    "crates/venues/nasdaq/src/itch_v5/",
+    "crates/venues/nasdaq/tests/parity_itch_v5.rs",
+    "crates/venues/nasdaq/benches/per_kind_itch_v5.rs",
+    "crates/venues/sgx/src/itch_v2/",
+    "crates/venues/sgx/tests/parity_itch_v2.rs",
+    "crates/venues/sgx/benches/per_kind_itch_v2.rs",
+    "crates/venues/nasdaq/src/ouch_v5/",
+    "crates/venues/nasdaq/tests/parity_ouch_v5.rs",
+    "crates/venues/nasdaq/benches/per_kind_ouch_v5.rs",
+    "crates/events/src/generated/",
+]

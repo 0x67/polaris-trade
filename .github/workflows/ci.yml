@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# paths-filter in the reusable prepare job lists PR files; the repo default
+# token is read-only and omits pull-requests.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # whole workspace, default features. Linux only while the repo is private
+  # (macOS bills 10x); drop os-matrix for the full 3-OS matrix once it goes public.
+  rust:
+    uses: 0x67/ci/.github/workflows/rust-ci.yml@main
+    with:
+      os-matrix: '["ubuntu-latest"]'
+
+  # same workspace with every host-buildable feature on. list matches
+  # lefthook.yml verbatim; driver-dpdk stays out, macOS/Windows have no libdpdk.
+  # the polaris-replay gzip backends are checked one at a time in replay-gzip,
+  # and polaris-client-soupbintcp/compressed in soupbintcp-compressed.
+  rust-features:
+    uses: 0x67/ci/.github/workflows/rust-ci.yml@main
+    with:
+      os-matrix: '["ubuntu-latest"]'
+      concurrency-key: features
+      workspace-args: --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/observability,polaris-orderbook/testing,polaris-pipeline/tz,polaris-pipeline/testing,polaris-venue-nasdaq/adapter,polaris-datafeed/observability
+
+  # opt-in gzip backends for the replay path; the default miniz backend is
+  # built by the workspace jobs above. zlib-ng needs cmake and a C compiler.
+  replay-gzip:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      extra-commands: |
+        cargo check -p polaris-replay --locked --no-default-features --features zlib-rs
+        cargo check -p polaris-replay --locked --no-default-features --features zlib-ng
+
+  # compressed SoupBinTCP client, checked apart from the workspace list: the
+  # feature is a compile-time switch that makes every dependent client inflate
+  # the server stream, so it cannot share a build with members that speak the
+  # plain stream.
+  soupbintcp-compressed:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      install-nextest: true
+      extra-commands: |
+        cargo clippy -p polaris-client-soupbintcp --all-targets --locked --features tokio,compressed,observability -- -D warnings
+        cargo nextest run -p polaris-client-soupbintcp --locked --features tokio,compressed,observability
+
+  # each of these three members alone with default features, one per command.
+  # No job above builds them that way. The rust-features list turns on
+  # features of all three. In the rust job feature unification turns on
+  # polaris-venue-nasdaq/adapter and polaris-orderbook/testing through
+  # polaris-datafeed, and tz and testing of polaris-pipeline through
+  # dev-dependencies of polaris-venue-nasdaq and polaris-replay.
+  member-defaults:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      extra-commands: |
+        cargo check -p polaris-venue-nasdaq --locked
+        cargo check -p polaris-orderbook --locked
+        cargo check -p polaris-pipeline --locked
+
+  # DPDK driver leg: needs libdpdk, Linux only. Checked apart from the
+  # workspace jobs above so a missing system lib never blocks the portable path.
+  dpdk:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      extra-commands: |
+        sudo apt-get update && sudo apt-get install -y libdpdk-dev libpcap-dev pkg-config
+        cargo clippy -p polaris-transport-dpdk --all-targets --locked --features driver-dpdk -- -D warnings
+        cargo test -p polaris-transport-dpdk --locked --features driver-dpdk --no-run
+
+  # pool and ring arithmetic under Miri. one job per slice: a shared miri-args
+  # string would apply one crate's test filter to the other's tests too.
+  miri-pool:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p polaris-transport-core --test miri_pool
+      advisory: true
+
+  miri-bypass:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p polaris-transport-core --features testing --test bypass
+      advisory: true
+
+  # runner is already the Linux target Miri interprets here, so no --target flag.
+  miri-afxdp-ring:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p polaris-transport-afxdp --lib ring
+      advisory: true
+
+  # record-from-bytes idiom (decode_prefix, MaybeUninit plus a byte copy).
+  # excluded: polaris-format-mdc compresses through the zstd C library, a
+  # foreign call Miri cannot execute; that crate holds no unsafe of its own.
+  miri-events:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p polaris-events
+      advisory: true
+
+  # pbn record-from-bytes idiom (write_record raw view, checked decode).
+  # excluded: the three zstd container tests call zstd through C FFI, which
+  # Miri cannot execute; each carries cfg_attr(miri, ignore). the unsafe they
+  # reach indirectly (write_record building the body) runs under Miri in the
+  # uncompressed container and stream suites.
+  miri-pbn:
+    uses: 0x67/ci/.github/workflows/rust-miri.yml@main
+    with:
+      miri-args: -p polaris-format-pbn --lib
+      advisory: true

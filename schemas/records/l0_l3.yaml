@@ -1,0 +1,358 @@
+schema_version: "1"
+
+# Normalized L0-L3 record layout. Single source of truth for the record
+# set: field order, sizes, the no-implicit-padding rule, rtype bands, enum
+# discriminants, and doc prose. Reproduces the shipped md-events layout exactly;
+# the generator owns padding, so no _pad field is authored here.
+
+enums:
+  - name: Action
+    repr: u8
+    doc: |
+      Order-level action. Modify models requeue-on-modify (priority loss) as the
+      baseline; no surveyed venue preserves priority on modify. Cancel is a partial
+      cancel; venues without a native cancel infer it at the adapter.
+    variants:
+      - { name: Add, value: 0 }
+      - { name: Cancel, value: 1 }
+      - { name: Modify, value: 2 }
+      - { name: Fill, value: 3 }
+      - { name: FillWithPrice, value: 4 }
+      - { name: Trade, value: 5 }
+      - { name: Reset, value: 6 }
+
+  - name: Side
+    repr: u8
+    doc: "Book side. Byte values match the DBN convention (B / A / N)."
+    variants:
+      - { name: Bid, value: 66, doc: "Buy side, DBN 'B'." }
+      - { name: Ask, value: 65, doc: "Sell side, DBN 'A'." }
+      - { name: None, value: 78, doc: "No side, DBN 'N'." }
+
+  - name: LevelAction
+    repr: u8
+    doc: "Level-event action for MBP-native (market-by-price) feeds."
+    variants:
+      - { name: New, value: 0 }
+      - { name: Change, value: 1 }
+      - { name: Delete, value: 2 }
+      - { name: Clear, value: 3, doc: "Discard every level on this side, or on both sides when the side is None." }
+
+  - name: BreakRefKind
+    repr: u8
+    doc: "Trade-break reference kind: how the broken trade is identified upstream."
+    variants:
+      - { name: MatchNumber, value: 0 }
+      - { name: SecondaryTradeId, value: 1 }
+
+  - name: ControlKind
+    repr: u8
+    doc: |
+      Feed-lifecycle control kind. Replay sync, gap recovery, and monitoring consume
+      these explicit events instead of inferring state from per-record flags.
+    variants:
+      - { name: Heartbeat, value: 0 }
+      - { name: FeedStart, value: 1 }
+      - { name: FeedEnd, value: 2 }
+      - { name: GapDetected, value: 3 }
+      - { name: SeqReset, value: 4 }
+      - { name: SnapshotBegin, value: 5 }
+      - { name: SnapshotEnd, value: 6 }
+      - { name: RecoveryStart, value: 7 }
+      - { name: RecoveryComplete, value: 8 }
+
+  - name: StatType
+    repr: u16
+    doc: |
+      Statistic kind, banded so new kinds are additive. Equities 0x0000-0x00FF;
+      derivatives/crypto 0x0100-0x01FF (reserved now); venue escape 0xFF00-0xFFFF.
+    variants:
+      - { name: PriceLimits, value: 0x0001 }
+      - { name: ReferencePrice, value: 0x0002 }
+      - { name: IndexPrice, value: 0x0003 }
+      - { name: OpeningPrice, value: 0x0004 }
+      - { name: ClosingPrice, value: 0x0005 }
+      - { name: TotalVolume, value: 0x0006 }
+      - { name: TotalValue, value: 0x0007 }
+      - { name: TradeCount, value: 0x0008 }
+      - { name: HighPrice, value: 0x0009 }
+      - { name: LowPrice, value: 0x000A }
+      - { name: Vwap, value: 0x000B }
+      - { name: FundingRate, value: 0x0100 }
+      - { name: OpenInterest, value: 0x0101 }
+      - { name: MarkPrice, value: 0x0102 }
+      - { name: SettlementPrice, value: 0x0103 }
+      - { name: Liquidation, value: 0x0104 }
+      - { name: InsuranceFund, value: 0x0105 }
+      - { name: NetAssetValue, value: 0x0106 }
+      - { name: VenueSpecific, value: 0xFF00 }
+
+  - name: TradingState
+    repr: u8
+    doc: |
+      Superset trading state across surveyed venue encodings. Venue-specific detail
+      stays in the Status record's venue_reason, not encoded here.
+    variants:
+      - { name: Unknown, value: 0 }
+      - { name: PreOpen, value: 1 }
+      - { name: OpeningAuction, value: 2 }
+      - { name: Continuous, value: 3 }
+      - { name: IntradayAuction, value: 4 }
+      - { name: Halt, value: 5 }
+      - { name: Pause, value: 6 }
+      - { name: Break, value: 7 }
+      - { name: ClosingAuction, value: 8 }
+      - { name: PostClose, value: 9 }
+      - { name: Closed, value: 10 }
+      - { name: Suspended, value: 11 }
+      - { name: NoTrade, value: 12 }
+
+  - name: AssetClass
+    repr: u8
+    default: Equity
+    doc: |
+      Asset class, metadata only. Never a dispatch key (the pipeline stays
+      asset-agnostic); carried so consumers can filter. Non-equity values reserved.
+    variants:
+      - { name: Equity, value: 0, doc: "Cash equity (default)." }
+      - { name: Future, value: 1, doc: "Reserved: dated future." }
+      - { name: Option, value: 2, doc: "Reserved: option." }
+      - { name: Perpetual, value: 3, doc: "Reserved: perpetual swap." }
+      - { name: Spot, value: 4, doc: "Reserved: spot pair." }
+      - { name: Index, value: 5, doc: "Reserved: index." }
+      - { name: Fx, value: 6, doc: "Reserved: FX pair." }
+      - { name: Bond, value: 7, doc: "Reserved: bond." }
+      - { name: Commodity, value: 8, doc: "Reserved: commodity." }
+      - { name: Etf, value: 9, doc: "Reserved: exchange-traded fund." }
+
+  - name: OptionType
+    repr: u8
+    doc: "Option right. None for every instrument that is not an option."
+    variants:
+      - { name: None, value: 0 }
+      - { name: Call, value: 1 }
+      - { name: Put, value: 2 }
+
+# RecordFlags bit registry. The RecordFlags type stays hand-written logic; these bit
+# definitions are emitted to the C header (and downstream), never to generated Rust.
+flags:
+  - { name: SNAPSHOT, bit: 0, doc: "Derived from a snapshot, not a live incremental event." }
+  - { name: GAP_SUSPECT, bit: 1, doc: "A sequence gap is suspected on the feeding stream." }
+  - { name: BAD_TS, bit: 2, doc: "Venue timestamp missing or implausible; ts_event best-effort." }
+  - { name: MBP_SYNTHESIZED, bit: 3, doc: "Synthesized from an MBP-native level feed." }
+  - { name: VENUE_ESCAPE, bit: 4, doc: "Venue-specific escape bit; meaning set by the adapter." }
+  - { name: NON_PRINTABLE, bit: 5, doc: "Book-mutating execution suppressed from tape/volume/OHLCV." }
+  - { name: SUSPECT, bit: 6, doc: "Applied but policy-flagged suspect; book state still mutated." }
+
+structs:
+  - name: BidAskPair
+    derive_default: true
+    doc: |
+      One price level's bid/ask pair on a depth snapshot. No header: nested in Mbp10,
+      never decoded on its own.
+    fields:
+      - { name: bid_px, class: i64 }
+      - { name: ask_px, class: i64 }
+      - { name: bid_sz, class: u64 }
+      - { name: ask_sz, class: u64 }
+      - { name: bid_ct, class: u32 }
+      - { name: ask_ct, class: u32 }
+
+  - name: DefinitionTail
+    doc: |
+      Derivative and FX terms of one instrument definition. A field holds its
+      absent value when the instrument has no such term: the null price for
+      tick_size and strike, zero elsewhere.
+    fields:
+      - { name: tick_size, class: price }
+      - { name: contract_multiplier, class: i64 }
+      - { name: min_qty, class: u64 }
+      - { name: expiration_ns, class: u64 }
+      - { name: strike, class: price }
+      - { name: underlying_id, class: u32 }
+      - { name: base_ccy, class: bytes, width: 8 }
+      - { name: quote_ccy, class: bytes, width: 8 }
+      - { name: settle_ccy, class: bytes, width: 8 }
+      - { name: price_scale, class: i8 }
+      - { name: option_type, class: enum, ty: OptionType }
+
+header:
+  name: RecordHeader
+  doc: |
+    Common prefix on every record. length is the full record size in 32-bit words
+    (DBN convention); ts_egress/egress_seq are 0 until the egress sequencer stamps
+    them.
+  fields:
+    - { name: length, class: u8 }
+    - { name: rtype, class: u8 }
+    - { name: venue, class: u16 }
+    - { name: instrument_id, class: u32 }
+    - { name: ts_event, class: u64 }
+    - { name: ts_recv, class: u64 }
+    - { name: ts_egress, class: u64 }
+    - { name: venue_seq, class: u64 }
+    - { name: egress_seq, class: u64 }
+    - { name: flags, class: flags }
+
+records:
+  - name: Mbo
+    rtype: 0x10
+    band: BookTape
+    doc: "Order-level (MBO) event."
+    fields:
+      - { name: order_id, class: u64 }
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: action, class: enum, ty: Action }
+      - { name: side, class: enum, ty: Side }
+      - { name: participant, class: bytes, width: 7 }
+
+  - name: Level
+    rtype: 0x11
+    band: BookTape
+    doc: "MBP-native level event; downstream records carry the synthesized-from-MBP flag."
+    fields:
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: num_deletes, class: u16 }
+      - { name: side, class: enum, ty: Side }
+      - { name: level, class: u8 }
+      - { name: action, class: enum, ty: LevelAction }
+
+  - name: Mbp10
+    rtype: 0x12
+    band: BookTape
+    doc: |
+      Derived market-by-price depth snapshot: the triggering update plus a 10-level
+      book snapshot. Levels beyond depth are zeroed. Producer: orderbook-engine derive.
+    fields:
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: action, class: enum, ty: Action }
+      - { name: side, class: enum, ty: Side }
+      - { name: depth, class: u8 }
+      - { name: levels, class: array, count: 10, elem: { class: struct, ty: BidAskPair } }
+
+  - name: Bbo
+    rtype: 0x13
+    band: BookTape
+    doc: "Derived best-bid-offer snapshot: the top of Mbp10's depth."
+    fields:
+      - { name: pair, class: struct, ty: BidAskPair }
+
+  - name: Trade
+    rtype: 0x14
+    band: BookTape
+    doc: |
+      Derived trade print for the tape stream; trade_ref is the identity a later
+      TradeBreak reverses by.
+    fields:
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: trade_ref, class: u64 }
+      - { name: aggressor, class: enum, ty: Side }
+
+  - name: TradeBreak
+    rtype: 0x15
+    band: BookTape
+    doc: "Trade cancellation referencing the prior trade identity."
+    fields:
+      - { name: break_ref, class: u64 }
+      - { name: ref_kind, class: enum, ty: BreakRefKind }
+
+  - name: Ohlcv
+    rtype: 0x16
+    band: BookTape
+    doc: |
+      Derived OHLCV bar for one resolution and bucket; closes on event-time crossing
+      the bucket boundary, never wall clock.
+    fields:
+      - { name: open, class: price }
+      - { name: high, class: price }
+      - { name: low, class: price }
+      - { name: close, class: price }
+      - { name: volume, class: u64 }
+      - { name: value, class: i64 }
+      - { name: resolution, class: u64 }
+      - { name: trades, class: u32 }
+
+  - name: Imbalance
+    rtype: 0x17
+    band: BookTape
+    doc: "Auction imbalance / NOII. Unavailable prices are the null sentinel i64::MAX."
+    fields:
+      - { name: ref_px, class: price }
+      - { name: far_px, class: price }
+      - { name: near_px, class: price }
+      - { name: paired_qty, class: u64 }
+      - { name: imbalance_qty, class: u64 }
+      - { name: eq_px, class: price }
+      - { name: eq_qty, class: u64 }
+      - { name: imbalance_side, class: enum, ty: Side }
+      - { name: cross_type, class: u8 }
+
+  - name: Fill
+    rtype: 0x18
+    band: BookTape
+    doc: |
+      Fill-level participant attribution: both sides' resolved alpha codes plus fill
+      identity. Trade stays engine-derived and attribution-free; this carries
+      broker-flow attribution separately.
+    fields:
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: fill_ref, class: u64 }
+      - { name: ref_kind, class: enum, ty: BreakRefKind }
+      - { name: buyer, class: bytes, width: 7 }
+      - { name: seller, class: bytes, width: 7 }
+      - { name: aggressor, class: enum, ty: Side }
+
+  - name: Stats
+    rtype: 0x30
+    band: Stats
+    doc: |
+      Venue-authoritative statistic, typed by stat_type. category distinguishes kinds
+      that share a type (static vs dynamic price limits).
+    fields:
+      - { name: price, class: price }
+      - { name: qty, class: u64 }
+      - { name: aux, class: i64 }
+      - { name: stat_type, class: enum, ty: StatType }
+      - { name: category, class: u8 }
+
+  - name: Status
+    rtype: 0x31
+    band: Stats
+    doc: "Trading-state transition; venue-specific reason text preserved verbatim."
+    fields:
+      - { name: state, class: enum, ty: TradingState }
+      - { name: venue_reason, class: bytes, width: 20 }
+
+  - name: Control
+    rtype: 0x00
+    band: Control
+    doc: |
+      Feed lifecycle event. aux carries kind-specific detail (gap width, resume
+      sequence); 0 when unused.
+    fields:
+      - { name: aux, class: u64 }
+      - { name: kind, class: enum, ty: ControlKind }
+
+  - name: Definition
+    rtype: 0x40
+    band: Reference
+    doc: |
+      One point-in-time instrument definition. hdr.instrument_id is the minted stable
+      id; hdr.ts_event is when the definition became effective. status_flags/call_auction are
+      appended tail fields under the skip-unknown-tail rule. tail carries the
+      derivative and FX terms.
+    fields:
+      - { name: venue_native_id, class: u64 }
+      - { name: lot_size, class: u32 }
+      - { name: raw_symbol, class: bytes, width: 20 }
+      - { name: board, class: bytes, width: 4 }
+      - { name: asset_class, class: enum, ty: AssetClass }
+      - { name: qty_scale, class: i8 }
+      - { name: status_flags, class: bytes, width: 8 }
+      - { name: call_auction, class: u8 }
+      - { name: tail, class: struct, ty: DefinitionTail }

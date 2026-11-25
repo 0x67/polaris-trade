@@ -1,0 +1,13 @@
+# Local working configs (may carry endpoints/soupbin passwords); the
+# config.example.* templates stay checked in.
+/config.yaml
+/config.yml
+/config.json
+!/config.example.*
+
+# Local run output (normalized/raw capture taps)
+/out/
+
+# Fresh bench runs (benches/nasdaq_pipeline); the committed reference is
+# benches/baseline/
+/benches/results/

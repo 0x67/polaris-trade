@@ -1,0 +1,30 @@
+# polaris-trade
+
+Knowledge graph for polaris-trade: architecture of the transports, protocol clients, market-data pipeline, formats, venue parsers, tools and the datafeed binary in this workspace, design decisions behind each, and test specs.
+
+This directory defines the high-level concepts, business logic, and architecture of this project using markdown. It is managed by [lat.md](https://www.npmjs.com/package/lat.md), a tool that anchors source code to these definitions. Install the `lat` command with `npm i -g lat.md` and run `lat --help`.
+
+## Areas
+
+One page per crate area; each describes the code as built.
+
+- [[transports]]: transport crates, one page per crate.
+- [[clients]]: protocol clients built on the transports, one page per crate, plus the wire-codec fuzz targets.
+- [[events]]: fixed-layout normalized record contract, rtype bands and price convention.
+- [[pipeline]]: source-agnostic ingest, venue-adapter seam, session model, egress sequencing, identity and versioned config.
+- [[orderbook]]: order book reconstruction, venue policy seam, status machine and derived views.
+- [[replay]]: capture, pcap and binary-dump replay containers with the pacing driver.
+- [[codegen]]: wire-schema and record-schema generators, drift gates and emission invariants.
+- [[formats]]: the MDC1 capture container and the PBN1 record format, one page per format.
+- [[venues]]: generated venue parsers and shared plumbing, one page per crate.
+- [[tools]]: command line tools, one page per tool.
+- [[sources]]: ingest sources beyond the protocol clients, one page per crate.
+- [[datafeed]]: the feed binary and library: session wiring, raw capture and test specs, one page each.
+
+## Proof and CI
+
+Linux kernel paths are proven by running them in a privileged container; CI checks everything that runs without privilege, on every change.
+
+- Linux check image (`scripts/kernel-proof/Dockerfile`): toolchain, nextest, DPDK with its pcap driver, bpftool and clang. It serves clippy, tests and link checks of the Linux-only crates from any development host. It proves correctness only; no performance number comes from it.
+- Kernel proof (`scripts/transports-kernel-proof.sh`): runs the ignored kernel-path tests of [[io-uring]], [[afxdp]] and [[dpdk]] in that image, privileged: every io_uring receive path, every AF_XDP redirect mode on a fresh veth pair, DPDK over pcap devices, multicast joins, and io_uring refused without privilege. Each case checks payload bytes equal to the bytes sent. It is a local script for now, not a CI job.
+- CI (`.github/workflows/`): calls the shared `0x67/ci` workflows to build, lint and test the whole workspace with default and portable feature sets. The matrix is Linux only while the repository is private; the full Linux, macOS and Windows matrix returns when it goes public. It also links the DPDK driver on Linux, checks the replay crate's two opt-in gzip backends one at a time, lints and tests the SoupBinTCP client's `compressed` build in its own job (the feature stays out of the workspace feature list, see [[soupbintcp#Tests#Compressed build]]), checks `polaris-venue-nasdaq`, `polaris-orderbook` and `polaris-pipeline` each alone with default features in the `member-defaults` job (no workspace job builds them that way: the feature list turns on features of all three, and in the default-feature job the datafeed and the dev-dependencies of other members turn the same features on), runs Miri over the pools, the bypass shell, the AF_XDP ring, the record decode in `polaris-events` and the library tests of `polaris-format-pbn`, and replays the corpus of all ten fuzz targets. Miri leaves out `polaris-format-mdc`: it calls the zstd C library, which Miri cannot execute, and has no `unsafe` of its own. The zstd container tests of `polaris-format-pbn` are skipped under Miri for the same reason. `release-please.yml` calls the shared release-please workflow on every push to `main` and by hand: it opens a release PR that moves all twenty-two member versions together, and merging it tags `vX.Y.Z`. The `release.yml` name stays free for the `dist` workflow.

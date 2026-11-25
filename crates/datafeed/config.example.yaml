@@ -1,0 +1,142 @@
+# datafeed reference config. YAML is the default format (comments allowed);
+# strict JSON still loads if the file ends in `.json`. Copy this to `config.yaml`,
+# keep one alternative per field, fill in paths, then run from the workspace root:
+#
+#   cargo run --release -p polaris-datafeed -- crates/datafeed/config.yaml
+#
+# Fields with a sensible default may be omitted entirely.
+
+# nasdaq
+venue: nasdaq
+
+# Venue registry id stamped on every record's RecordHeader.venue. On MDC1
+# replay, 0 adopts the capture header's venue; a nonzero value that disagrees
+# with the header fails at startup.
+venue_id: 1
+
+# UTC epoch nanoseconds for midnight of the venue trade date. Adapters add each
+# message's within-day offset to this. Leave 0: MDC1 replay derives it from the
+# capture date, and a live session installs each trade date's anchor from frame
+# receive time and rolls it at every session end. A nonzero value wins on
+# replay; a live source refuses one at startup, since it would go stale at the
+# first trade-date roll.
+session_midnight_ns: 0
+
+# ---------------------------------------------------------------------------
+# Source: where venue frames come from. Pick exactly one of the blocks below.
+# ---------------------------------------------------------------------------
+
+# Replay from a capture file on disk.
+source:
+  kind: replay
+  path: /absolute/path/to/feed.dat
+  # auto | binary | binary-gz | capture | pcap
+  # A dual-channel venue's replay requires `capture` (it carries the primary/secondary
+  # stream ids).
+  format: auto
+  # base_ts / step_ns are used only by binary and binary-gz, whose rows carry
+  # no receive timestamps.
+  base_ts: 0
+  step_ns: 1
+  # stream | eager. eager is supported only by binary and binary-gz.
+  load: stream
+  pacing:
+    # Pick one default mode:
+    default_mode: { mode: unthrottled }
+    # default_mode: { mode: real-time }
+    # default_mode: { mode: scaled, scale: 10.0 }
+    #
+    # Sorted, non-overlapping half-open ts_recv windows; outside them the
+    # default mode applies. Empty means one fixed mode over the whole replay.
+    windows: []
+    # windows:
+    #   - { from_ts: 1783875600000000000, to_ts: 1783876200000000000, mode: { mode: real-time } }
+    #   - { from_ts: 1783890000000000000, to_ts: 1783890600000000000, mode: { mode: scaled, scale: 2.0 } }
+
+# Single-channel SoupBinTCP live (replace the `source` block above). No
+# built-in venue runs live yet: NASDAQ needs a MoldUDP source.
+# source:
+#   kind: live
+#   endpoint: 127.0.0.1:18001
+#   soupbin:
+#     username: user01
+#     password: replace-me
+#     requested_session: ""
+#     requested_sequence_number: 1
+#     login_timeout: 30s
+#     heartbeat_interval: 1s
+#     heartbeat_timeout: 15s
+#     max_frame_size: 65536
+#     decode_buf_capacity: 65536
+
+# Dual-channel SoupBinTCP live (primary + secondary channel):
+# source:
+#   kind: live-dual
+#   primary_endpoint: 127.0.0.1:18001
+#   secondary_endpoint: 127.0.0.1:18002
+#   soupbin:
+#     username: user01
+#     password: replace-me
+#     requested_session: ""
+#     requested_sequence_number: 1
+#     login_timeout: 30s
+#     heartbeat_interval: 1s
+#     heartbeat_timeout: 15s
+#     max_frame_size: 65536
+#     decode_buf_capacity: 65536
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
+# In-process sink. `null` discards normalized records; `collecting` retains them
+# in memory (tests / capture-only, not an unbounded production session). Neither
+# writes to disk, and no tap persists normalized output: replaying the raw
+# capture below through the adapter reproduces it.
+sink: null
+# sink: collecting
+
+# Capture tap. raw_dir is a bucket ROOT directory, not a file. Beneath it the tap
+# lays out <venue>/<version>/<YYYY-MM-DD>/ and derives self-describing leaf names
+# <venue>_<version>_<window>.mdc1.zst (MDC1 zstd container) holding the raw
+# pre-adapter venue bytes, so a run never names its own files. A run restarted
+# inside a window never truncates the earlier file: it writes
+# <venue>_<version>_<window>_r<N>.mdc1.zst beside it. Every output dir also gets
+# a manifest.json listing its files with record counts and sha256 hashes.
+#
+# raw_dir alone turns the tap on; leave it null on replay since the source file
+# already is the raw feed. normalized_dir is retired with normalized capture: a
+# config that still sets it is a startup error.
+taps:
+  raw_dir: null
+  # raw_dir: ./out/raw   # -> ./out/raw/nasdaq/v5/2026-05-21/nasdaq_v5_2026-05-21.mdc1.zst
+  # Trade date in the derived filename and header (YYYYMMDD). Live leaves it 0:
+  # the tap dates each session from its first frame, and a set value is a
+  # startup error, since it goes stale once a restart lands on a later day. On
+  # MDC1 replay, 0 adopts the capture header's date and a nonzero value that
+  # disagrees is a startup error; binary replays with the tap on must set it.
+  capture_date: 0
+  # Time-partition window as a duration token, counted from the venue session's
+  # open: `1d` (default) is one file per trading session and never rolls
+  # intra-session; `1h`, `30m`, ... roll on the boundary. Sub-day on a
+  # dual-channel source is unsupported: it polls primary, then secondary, so ts_recv can
+  # step back across a boundary and the tap aborts the run with a window
+  # regression.
+  # Omit for 1d.
+  partition: 1d
+
+# OHLCV bar bucket widths as duration tokens; resolved to nanoseconds. Defaults
+# to the seven sub-day intervals. `--ohlcv-resolutions=1s,5m,1h` overrides at
+# startup. Day-scale widths (`1d`) parse but anchor to UTC midnight, not the
+# exchange session, so they are not defaults.
+ohlcv_resolutions: [1s, 1m, 5m, 10m, 15m, 30m, 1h]
+
+# Runtime observability. Omit (default) to run blind at zero cost. Requires a
+# build with --features observability; present here but built without it fails at
+# startup rather than running blind.
+# observability:
+#   service_name: datafeed
+#   # Prometheus pull endpoint; scrape http://127.0.0.1:9464/metrics
+#   exporter: { kind: prometheus, bind: 127.0.0.1:9464 }
+#   # OTLP push to a collector (grpc false = http/protobuf):
+#   # exporter: { kind: otlp, endpoint: http://127.0.0.1:4317, grpc: true }

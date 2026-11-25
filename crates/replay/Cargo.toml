@@ -1,0 +1,45 @@
+[package]
+name = "polaris-replay"
+description = "Replay containers (DBN, pcap, venue dumps) and the replay driver"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "md_replay"
+
+[dependencies]
+# Not inherited: the workspace entry keeps flate2's default backend for other
+# members, and md-replay picks its backend through its own features below.
+flate2 = { version = "1.1.10", default-features = false }
+md-capture = { workspace = true }
+md-events = { workspace = true }
+md-pipeline = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+flate2 = { version = "1.1.10", default-features = false }
+md-pipeline = { workspace = true, features = ["testing"] }
+
+[features]
+# gzip backend for the .gz replay path. Exactly one is enabled (lib.rs guards
+# it). Default `miniz` is the current pure-Rust miniz_oxide. `zlib-rs` is a
+# faster pure-Rust drop-in, no C toolchain. `zlib-ng` is fastest but needs cmake
+# and a C compiler. A/B a non-default backend with:
+#   cargo bench -p polaris-replay --no-default-features --features zlib-rs
+default = ["miniz"]
+miniz = ["flate2/rust_backend"]
+zlib-rs = ["flate2/zlib-rs"]
+zlib-ng = ["flate2/zlib-ng"]
+
+[[bench]]
+name = "gzip_inflate"
+harness = false

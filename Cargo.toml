@@ -1,0 +1,108 @@
+[workspace]
+resolver = "3"
+# literal list, no globs; each crate lands together with its manifest
+members = [
+  "crates/transports/core",
+  "crates/transports/socket",
+  "crates/transports/io-uring",
+  "crates/transports/afxdp",
+  "crates/transports/dpdk",
+  "crates/clients/moldudp",
+  "crates/clients/soupbintcp",
+  "crates/events",
+  "crates/orderbook",
+  "crates/pipeline",
+  "crates/replay",
+  "crates/codegen",
+  "crates/formats/mdc",
+  "crates/formats/pbn",
+  "crates/venues/binance",
+  "crates/venues/common",
+  "crates/venues/hyperliquid",
+  "crates/venues/nasdaq",
+  "crates/venues/sgx",
+  "crates/tools/mdex",
+  "crates/datafeed",
+  "crates/sources/websocket",
+]
+# detached: own workspace and lock, built by cargo-fuzz on nightly
+exclude = ["fuzz"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.96.1"
+authors = ["0x67 <69191110+0x67@users.noreply.github.com>"]
+repository = "https://github.com/0x67/polaris-trade"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# published under a polaris- prefix to hold the registry namespace; the alias
+# keeps import paths and feature strings unchanged across every member
+transport-core = { package = "polaris-transport-core", path = "crates/transports/core" }
+transport-socket = { package = "polaris-transport-socket", path = "crates/transports/socket" }
+client-soupbintcp = { package = "polaris-client-soupbintcp", path = "crates/clients/soupbintcp" }
+md-events = { package = "polaris-events", path = "crates/events" }
+orderbook-engine = { package = "polaris-orderbook", path = "crates/orderbook" }
+md-pipeline = { package = "polaris-pipeline", path = "crates/pipeline" }
+md-replay = { package = "polaris-replay", path = "crates/replay" }
+md-capture = { package = "polaris-format-mdc", path = "crates/formats/mdc" }
+proto-common = { package = "polaris-venue-common", path = "crates/venues/common" }
+proto-codegen = { package = "polaris-codegen", path = "crates/codegen" }
+proto-nasdaq = { package = "polaris-venue-nasdaq", path = "crates/venues/nasdaq" }
+
+# publish = false upstream: any crate enabling this cannot be published to crates.io until it is
+observability-core = { git = "https://github.com/0x67/observability", tag = "observability-v0.2.2" }
+observability = { git = "https://github.com/0x67/observability", tag = "observability-v0.2.2" }
+metrics = "0.24"
+thiserror = "2.0.18"
+socket2 = { version = "0.6.5", features = ["all"] }
+mio = { version = "1.2.3", default-features = false, features = ["net", "os-poll"] }
+tokio = { version = "1.53.1", default-features = false }
+libc = "0.2.189"
+# 0.7.13 kept from the old backend; bump only after reading the changelog
+io-uring = "0.7.13"
+tracing = "0.1.44"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+humantime-serde = "1.1.1"
+bytes = "1.12.1"
+smallvec = { version = "1.16.1", features = ["const_generics"] }
+bitvec = "1.1.1"
+flate2 = "1.1.10"
+# Bundled IANA tzdb: zone anchors must not depend on the host's zoneinfo.
+jiff = { version = "0.2.34", features = ["tzdb-bundle-always"] }
+rustc-hash = "2.1.3"
+serde_yaml_ng = "0.10"
+sha2 = "0.11.0"
+time = { version = "0.3", features = ["macros"] }
+zstd = "0.13"
+
+# build only
+cc = "1.4.7"
+pkg-config = "0.3.34"
+
+# dev only
+allocation-counter = "0.8.1"
+criterion = "0.8.2"
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+toml = "1.1.6"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# `#[must_use]` on every pure fn is noise; add it where dropping result is bug
+must_use_candidate = "allow"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+# whole workspace inherits: profiles only apply at root
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

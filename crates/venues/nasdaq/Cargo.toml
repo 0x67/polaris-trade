@@ -1,0 +1,38 @@
+[package]
+name = "polaris-venue-nasdaq"
+description = "NASDAQ venue crate: generated wire-parse code for NASDAQ feed protocols"
+version = "0.2.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# lib target keeps its original name: the package rename is a registry
+# concern, and dependents alias it back anyway. Own tests and benches
+# link by lib name, so changing it would rewrite every import here.
+name = "proto_nasdaq"
+
+[dependencies]
+proto-common = { workspace = true }
+md-events = { workspace = true, optional = true }
+orderbook-engine = { workspace = true, optional = true }
+md-pipeline = { workspace = true, optional = true }
+
+[features]
+adapter = ["dep:md-events", "dep:orderbook-engine", "dep:md-pipeline"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+md-pipeline = { workspace = true, features = ["testing", "tz"] }
+md-replay = { workspace = true }
+
+[[bench]]
+name = "per_kind_itch_v5"
+harness = false
+
+[[bench]]
+name = "per_kind_ouch_v5"
+harness = false

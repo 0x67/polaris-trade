@@ -1,0 +1,149 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "pull-request-title-pattern": "chore(release): v${version}",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": true,
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Features"
+        },
+        {
+          "type": "fix",
+          "section": "Bug fixes"
+        },
+        {
+          "type": "perf",
+          "section": "Performance"
+        },
+        {
+          "type": "refactor",
+          "section": "Refactor"
+        },
+        {
+          "type": "docs",
+          "section": "Documentation"
+        },
+        {
+          "type": "test",
+          "section": "Tests"
+        },
+        {
+          "type": "build",
+          "section": "Build"
+        },
+        {
+          "type": "ci",
+          "section": "CI"
+        },
+        {
+          "type": "revert",
+          "section": "Reverts"
+        },
+        {
+          "type": "chore",
+          "section": "Chore",
+          "hidden": true
+        },
+        {
+          "type": "style",
+          "section": "Style",
+          "hidden": true
+        }
+      ],
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "crates/transports/core/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/transports/socket/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/transports/io-uring/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/transports/afxdp/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/transports/dpdk/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/clients/moldudp/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/clients/soupbintcp/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/events/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/orderbook/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/pipeline/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/replay/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/codegen/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/formats/mdc/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/formats/pbn/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/venues/binance/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/venues/common/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/venues/hyperliquid/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/venues/nasdaq/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/venues/sgx/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/tools/mdex/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/datafeed/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "crates/sources/websocket/Cargo.toml"
+        }
+      ]
+    }
+  }
+}
