@@ -26,6 +26,7 @@ The built binary is `target/release/datafeed`:
 
 ```
 datafeed <config.yaml|config.json> [--ohlcv-resolutions=1s,5m,1h]
+datafeed --version
 ```
 
 Add `--features observability` to compile in the per-stage timers and the
