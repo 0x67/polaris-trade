@@ -16,7 +16,9 @@ The library is named `polaris_feed`, and `include/polaris_abi.h` is its header. 
 
 A NULL config, out pointer, handle, record array or count pointer returns `POLARIS_ERR_NULL`, except that close takes a NULL handle as a no-op. Each `FeedError` variant maps to its own status (config, source, session, tap, runtime), with `POLARIS_ERR_OTHER` for a variant this ABI version has no status for. There is no error message accessor: the status identifies the failing stage, which is what a host branches on, as `FeedError`'s own docs ask of Rust hosts.
 
-The handle is not thread-safe and stays on the thread that opened it, because `FeedSession` is not `Send`. `POLARIS_ABI_VERSION` is 1.
+The handle is not thread-safe and stays on the thread that opened it, because `FeedSession` is not `Send`.
+
+`POLARIS_ABI_VERSION` is 1. It reaches the host as a `#define` at compile time, and [[crates/datafeed-ffi/src/lib.rs#polaris_abi_version]] returns the value the loaded library was built with. The header asks a host to call it first and stop on a mismatch, so a host that loads a `libpolaris_feed` from another ABI revision fails before it passes a record array sized for its own `polaris_record`.
 
 ## Record lifetime
 

@@ -23,8 +23,9 @@ cargo build --profile ffi -p polaris-datafeed-ffi
 The `ffi` profile is the release profile with `panic = "unwind"`. It writes
 `libpolaris_feed.a` and `libpolaris_feed.so` (`.dylib` on macOS), or
 `polaris_feed.lib`, `polaris_feed.dll` and its import library
-`polaris_feed.dll.lib` on Windows, to `target/ffi/`. Every entry point catches
-a Rust panic and returns `POLARIS_ERR_PANIC`, which needs an unwinding build.
+`polaris_feed.dll.lib` on Windows, to `target/ffi/`. The open, poll and close
+functions catch a Rust panic and return `POLARIS_ERR_PANIC`, which needs an
+unwinding build.
 A library built with `--release` takes the workspace's `panic = "abort"`, and
 a panic then aborts the host process.
 
@@ -39,6 +40,7 @@ Rust needs, which `cargo rustc -p polaris-datafeed-ffi --profile ffi
 polaris_feed *feed = NULL;
 polaris_record records[64];
 size_t written = 0;
+if (polaris_abi_version() != POLARIS_ABI_VERSION) { /* built from another ABI revision */ }
 int32_t rc = polaris_feed_open(config_json, &feed);
 if (rc != POLARIS_OK) { /* negative status */ }
 while ((rc = polaris_feed_poll(feed, records, 64, &written)) == POLARIS_OK) {
@@ -50,10 +52,13 @@ rc = polaris_feed_close(feed);
 
 `config_json` is a JSON document shaped like the `datafeed` config file
 (`crates/datafeed/config.example.yaml`); its `sink` and `observability` keys
-are ignored. Each record's `bytes` points into a buffer the handle reuses, and
-it is valid until the next call on the same handle. The header documents
-every function, the threading rule and every status code. The record layouts
-are in `crates/events/include/md_events.h`.
+are ignored. `polaris_abi_version` returns the ABI version the loaded library
+was built with; a host stops when it differs from the header's
+`POLARIS_ABI_VERSION`, since records and statuses may then differ. Each
+record's `bytes` points into a buffer the handle reuses, and it is valid until
+the next call on the same handle. The header documents every function, the
+threading rule and every status code. The record layouts are in
+`crates/events/include/md_events.h`.
 
 ## Tests
 
