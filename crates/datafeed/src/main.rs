@@ -9,8 +9,14 @@ use datafeed::{
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--version") {
+        println!("datafeed {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     let Some(path) = args.iter().find(|a| !a.starts_with("--")).cloned() else {
-        eprintln!("usage: datafeed <config.yaml|config.json> [--ohlcv-resolutions=1s,5m,1h]");
+        eprintln!(
+            "usage: datafeed <config.yaml|config.json> [--ohlcv-resolutions=1s,5m,1h]\n       datafeed --version"
+        );
         return ExitCode::FAILURE;
     };
     let overrides = CliOverrides::from_args(&args);
