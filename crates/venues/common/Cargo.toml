@@ -1,7 +1,7 @@
 [package]
 name = "polaris-venue-common"
 description = "Shared hand-written error types and alpha-field helpers for generated venue crates"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

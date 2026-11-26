@@ -1,7 +1,7 @@
 [package]
 name = "polaris-orderbook"
 description = "Venue-agnostic orderbook engine, venue policy hooks, and derived-view computation"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

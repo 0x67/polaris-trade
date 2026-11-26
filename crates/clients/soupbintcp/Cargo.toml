@@ -1,6 +1,6 @@
 [package]
 name = "polaris-client-soupbintcp"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 description = "SoupBinTCP v3.0 client with wire codec, session state, heartbeats, and compressed variant"
 edition.workspace = true
 rust-version.workspace = true
