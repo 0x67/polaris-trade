@@ -165,9 +165,13 @@ Stamped records leave the process through an `md_pipeline::OutputSink`; the sess
 
 ## Typed library errors
 
-Every public entry point returns [[crates/datafeed/src/error.rs#FeedError]], so a host branches on the variant and the fields of the inner error instead of matching message text.
+The run entry points ([[crates/datafeed/src/app.rs#run]] and `run_config`) return [[crates/datafeed/src/error.rs#FeedError]], so a host branches on the variant, not message text.
 
-`FeedError` is `#[non_exhaustive]` and keeps each failure's source chain. `Config` wraps [[crates/datafeed/src/error.rs#ConfigError]] (unreadable or invalid config, a capture header that contradicts the config, a retired or misplaced tap setting, a venue and source pair with no dial). `Source` wraps [[crates/datafeed/src/source.rs#SourceError]] (live connect and SoupBinTCP faults, replay open, decode and retained io faults, a row on an undeclared stream). `Session` wraps `SessionError` from the hot loop, `Tap` is a capture close failure, `Runtime` is the tokio runtime failing to start, and `Observability` (feature `observability`) is the pipeline failing to install. `main.rs` prints the error with `Display`, so operator-facing text stays what the old boxed errors showed.
+Lower-level entry points return the inner error directly: `session::run` returns `SessionError`, the `source::connect_*` functions return `SourceError`, and `AnyTap::finish` returns `CaptureTapError`.
+
+`FeedError` is `#[non_exhaustive]`. `Config` wraps [[crates/datafeed/src/error.rs#ConfigError]] (unreadable or invalid config, a capture header that contradicts the config, a retired or misplaced tap setting, a venue and source pair with no dial). `Source` wraps [[crates/datafeed/src/source.rs#SourceError]] (live connect and SoupBinTCP faults, replay open, decode and retained io faults, a row on an undeclared stream). `Session` wraps `SessionError` from the hot loop, `Tap` is a capture close failure, `Runtime` is the tokio runtime failing to start, and `Observability` (feature `observability`) is the pipeline failing to install.
+
+Source chains survive except for the retained replay fault: `SourceError::RetainedIo` copies only the `kind` and `message` of the held `io::Error`, so its `source()` is `None`. `main.rs` prints the error with `Display`. Four messages carry a prefix the old boxed errors lacked: `read config <path>: `, `open replay <path>: `, `tokio runtime: ` and `observability init: `. `ConfigError::UnsupportedSource` names the source by its config `kind` tag (`live`, `live-dual`, `replay`) and never carries the source config, because the config holds SoupBinTCP credentials.
 
 ## Config-wiring rejections and replay failure surfacing
 
