@@ -1,14 +1,19 @@
 //! A host that embeds the library keeps its process: building, polling and
-//! closing a session installs no signal handler and no `tracing` subscriber.
+//! closing a session, or running a config through `app::run_config`, installs
+//! no signal handler and no `tracing` subscriber.
 #![cfg(unix)]
 
 mod support;
 
-use std::{fs, io, mem, ptr};
+use std::{
+    fs, io, mem, ptr,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use datafeed::{
     FeedError, FeedSession,
-    config::{ReplayFormat, SourceConfig},
+    app::run_config,
+    config::{DatafeedConfig, ReplayFormat, SourceConfig},
     venue::NASDAQ,
 };
 use support::reference_parity::binary_dump;
@@ -24,12 +29,21 @@ fn disposition(signum: libc::c_int) -> usize {
     old.sa_sigaction
 }
 
+fn assert_process_untouched(before: [usize; 2]) {
+    assert_eq!(SIGNALS.map(disposition), before, "SIGINT and SIGTERM moved");
+    assert!(
+        !tracing::dispatcher::has_been_set(),
+        "the library installed a global subscriber"
+    );
+}
+
+const SIGNALS: [libc::c_int; 2] = [libc::SIGINT, libc::SIGTERM];
+
 #[test]
 fn session_leaves_signal_dispositions_and_subscriber_alone() {
     let path = std::env::temp_dir().join("datafeed_host_process.bin");
     fs::write(&path, binary_dump(STREAM_HEX)).expect("write replay dump");
-    let signals = [libc::SIGINT, libc::SIGTERM];
-    let before = signals.map(disposition);
+    let before = SIGNALS.map(disposition);
 
     let source = SourceConfig::Replay {
         path: path.clone(),
@@ -55,9 +69,25 @@ fn session_leaves_signal_dispositions_and_subscriber_alone() {
     let _ = fs::remove_file(path);
 
     assert!(!out.is_empty(), "the session routed records");
-    assert_eq!(signals.map(disposition), before, "SIGINT and SIGTERM moved");
-    assert!(
-        !tracing::dispatcher::has_been_set(),
-        "the library installed a global subscriber"
-    );
+    assert_process_untouched(before);
+}
+
+#[test]
+fn run_config_leaves_signal_dispositions_and_subscriber_alone() {
+    let path = std::env::temp_dir().join("datafeed_host_process_run_config.bin");
+    fs::write(&path, binary_dump(STREAM_HEX)).expect("write replay dump");
+    let before = SIGNALS.map(disposition);
+
+    let config: DatafeedConfig = serde_json::from_value(serde_json::json!({
+        "venue": "nasdaq",
+        "venue_id": 2,
+        "session_midnight_ns": 0,
+        "source": {"kind": "replay", "path": path},
+    }))
+    .expect("replay config");
+    let outcome = run_config(config, Arc::new(AtomicBool::new(false)));
+    let _ = fs::remove_file(path);
+
+    outcome.expect("replay config runs to its end");
+    assert_process_untouched(before);
 }

@@ -117,9 +117,9 @@ These cases need a client built without `compressed`, because the mock writes pl
 
 ## Host process state
 
-`tests/host_process.rs` is unix-only and builds, polls and closes a replay `FeedSession` in a process of its own.
+`tests/host_process.rs` is unix-only and holds two cases: one builds, polls and closes a replay `FeedSession`, the other runs a replay config through `app::run_config` with a never-set stop flag.
 
-It reads the SIGINT and SIGTERM dispositions before and after and expects them unchanged, and expects no global `tracing` subscriber. A library that registered a handler or installed a subscriber fails it. CI runs it with `--no-default-features` in the `datafeed-embedded` job, where the `bin` feature and its crates are absent from the build.
+Each reads the SIGINT and SIGTERM dispositions before and after and expects them unchanged, and expects no global `tracing` subscriber. A library that registered a handler or installed a subscriber, in the session or in `run_config`, fails it. CI runs it with `--no-default-features` in the `datafeed-embedded` job, where the `bin` feature and its crates are absent from the build.
 
 ## Unit tests on the NASDAQ fixture venue
 
