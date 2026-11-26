@@ -47,22 +47,26 @@ impl OwnedRecord {
     }
 
     /// Egress stream the record was published on.
+    #[inline]
     pub fn stream(&self) -> StreamId {
         self.stream
     }
 
     /// Stamped header, `ts_egress` and `egress_seq` included.
+    #[inline]
     pub fn header(&self) -> &RecordHeader {
         &self.header
     }
 
     /// Record bytes after the header.
+    #[inline]
     pub fn body(&self) -> &[u8] {
         &self.body[..usize::from(self.body_len)]
     }
 
     /// The whole record as published: the `repr(C)` header bytes, then the
     /// body.
+    #[inline]
     pub fn bytes(&self) -> &[u8] {
         let len = HEADER_LEN + usize::from(self.body_len);
         // SAFETY: `OwnedRecord` is `repr(C)` with `body` right after `header`
@@ -73,6 +77,7 @@ impl OwnedRecord {
     }
 
     /// Borrows the record in the shape an [`OutputSink`] takes.
+    #[inline]
     pub fn as_record_ref(&self) -> RecordRef<'_> {
         RecordRef {
             stream: self.stream,

@@ -136,6 +136,7 @@ impl FeedSession {
     /// A fault that ends the source (sink, tap, anchor, or source) returns
     /// once, after the records routed before it; then every call returns
     /// [`FeedError::Closed`].
+    #[inline]
     pub fn poll(&mut self, out: &mut Vec<OwnedRecord>, max: usize) -> Result<usize, FeedError> {
         if self.queue.is_empty() && matches!(self.phase, Phase::Running) {
             self.phase = match self.advance() {
