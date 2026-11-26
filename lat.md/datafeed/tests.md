@@ -107,13 +107,19 @@ These cases need a client built without `compressed`, because the mock writes pl
 
 `nasdaq_replay_session_produces_normalized_records` asserts the normalized output of a stock directory, a system event, and an add; `nasdaq_replay_reads_gzip_dump` reads the same kind of dump through the gzip container.
 
+## Feed session from a host
+
+`tests/feed_session.rs` drives a `FeedSession` through the public API only, built with the builder and no config file.
+
+`host_poll_receives_the_runner_records_then_closed` replays the order-book reference fixture and polls five records at a time. It compares each record's stream and bytes with what `session::run` publishes over the same frames under the binary's replay assembly; the first batch routes more than five records, so a record dropped past `max` fails it. Two more polls must return `Closed`. `poll_returns_a_fault_after_the_records_routed_before_it` replays an MDC1 capture whose third row is on stream 1 and expects the two `Control` records, then `SourceError::UndeclaredStream`, then `Closed`.
+
 ## Unit tests on the NASDAQ fixture venue
 
 Unit tests under `src/` that need a venue run on the `NASDAQ` descriptor, or on a test-only descriptor built from it when they need a property NASDAQ lacks.
 
 - `tap.rs`: timestamps count from a literal New York midnight of 2026-05-21 (04:00 UTC), so the session code under test does not compute its own expected values, and leaves are `nasdaq/v5/<date>/nasdaq_v5_<window>.mdc1.zst`. `session_day_advance_rolls_dir_and_flushes_manifest` puts two frames in one UTC day and two New York sessions, so a roll on the UTC date would not fire. `earlier_session_day_rejected` expects `DayRegression`. `zero_date_adopts_first_frame_session` uses a frame at 02:00 UTC whose session label is the previous date. The continuous-session and unknown-zone tests build their descriptors with `..NASDAQ`.
 - `app.rs`: `NASDAQ_NEXT` (same venue id, version `v6`, the next feed id) gives the reconcile and the path-name guard a second feed to reject, and `FIXED_UTC9` (`RollModel::DailyFixed`, 9 h offset) gives the session-midnight derivation a fixed-offset venue.
-- `live.rs`: `NASDAQ_SOUPBIN` sets `soupbin_live: true`, so `live_dial` returns a dial and `live_run_refuses_a_set_session_anchor` reaches the anchor check instead of the unsupported-source refusal.
+- `live.rs`: `NASDAQ_SOUPBIN` sets `soupbin_live: true`, so `live_dial` returns a dial and `live_session_refuses_a_set_session_anchor` reaches the anchor check instead of the unsupported-source refusal.
 - `wiring.rs`: `build_tap_stamps_venue_feed_into_header` configures a descriptor whose feed id is `FEED_NASDAQ + 1` and reads that id back from the header, so a tap that stamped a fixed id fails. Its frame at 00:00 UTC belongs to the previous New York date, which the expected dir name shows.
 - `replay.rs`: `peek_capture_meta_reads_header_venue_date_and_feed` expects `FEED_NASDAQ`. `capture_row_on_undeclared_stream_fails_replay` writes three system events with the third on stream 1 and expects `SourceError::UndeclaredStream` naming that stream, the two rows before it captured, and a manifest entry of 2 records.
 - `config.rs`: `venue_names_resolve_to_on_disk_identity` pins `("nasdaq", "v5", 3)` and rejects an unknown name.
