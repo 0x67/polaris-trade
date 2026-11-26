@@ -1,6 +1,6 @@
 [package]
 name = "polaris-transport-afxdp"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 description = "AF_XDP receive for Linux over a raw XSK driver with its own XDP redirect program, no libxdp"
 edition.workspace = true
 rust-version.workspace = true

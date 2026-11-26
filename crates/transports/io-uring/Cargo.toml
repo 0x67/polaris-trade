@@ -1,6 +1,6 @@
 [package]
 name = "polaris-transport-io-uring"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 description = "io_uring UDP receive for Linux: legacy provided buffers, buffer ring or multishot, picked at run time"
 edition.workspace = true
 rust-version.workspace = true

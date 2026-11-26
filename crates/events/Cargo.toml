@@ -1,7 +1,7 @@
 [package]
 name = "polaris-events"
 description = "Normalized market-data event contract: records, flags, price, actions, trading state"
-version = "0.2.0" # x-release-please-version
+version = "0.3.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

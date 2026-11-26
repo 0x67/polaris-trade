@@ -179,7 +179,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "polaris-client-moldudp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitvec",
  "bytes",
@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-client-soupbintcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "flate2",
@@ -206,11 +206,11 @@ dependencies = [
 
 [[package]]
 name = "polaris-events"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "polaris-format-pbn"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "polaris-events",
  "thiserror",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-orderbook"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "polaris-events",
  "rustc-hash",
@@ -242,28 +242,28 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "polaris-venue-common"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "polaris-venue-nasdaq"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "polaris-venue-common",
 ]
 
 [[package]]
 name = "polaris-venue-sgx"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "polaris-venue-common",
 ]
