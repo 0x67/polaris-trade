@@ -408,69 +408,12 @@ where
     C: EgressClock,
     Tap: CaptureTap,
 {
-    let mut frames = Vec::with_capacity(control.batch);
-    let mut events = Vec::new();
-    // (stream, end index into `events`) per frame, in frame order.
-    let mut spans = Vec::with_capacity(control.batch);
-    let mut mbo_batch = Vec::with_capacity(2);
+    let mut buffers = StepBuffers::new(control.batch);
     loop {
-        frames.clear();
-        match source.recv_batch(&mut frames, control.batch) {
-            Ok(_) => {}
-            Err(IngestError::Closed) => break,
-            Err(IngestError::PoolExhausted { .. }) => continue,
-        }
-        events.clear();
-        spans.clear();
-        let mut fault = None;
-        // Feed the whole batch before routing so the prefetch window crosses
-        // frames; an adapter's output does not depend on when it is drained.
-        for frame in &frames {
-            if let Err(err) = tap.raw(frame.stream(), frame.ts_recv(), frame.payload()) {
-                fault = Some(err.into());
-                break;
-            }
-            if let Some(roll) = state.anchor_roll.as_mut()
-                && roll.due(frame.ts_recv())
-            {
-                match roll.roll(frame.ts_recv()) {
-                    Ok(anchor) => adapter.set_session_anchor(anchor),
-                    Err(err) => {
-                        fault = Some(err);
-                        break;
-                    }
-                }
-            }
-            {
-                let _feed = crate::obs::stage_timer(crate::obs::STAGE_FEED);
-                adapter.feed(
-                    frame.stream(),
-                    frame.payload(),
-                    frame.ts_recv(),
-                    frame.venue_seq(),
-                );
-            }
-            adapter.drain_into(&mut events);
-            spans.push((frame.stream(), events.len()));
-        }
-        route_events(
-            &events,
-            &spans,
-            &mut state.engines,
-            seq,
-            restart,
-            &mut mbo_batch,
-        )?;
-        let routed = events.len() as u64;
-        state.engines.stats.records += routed;
-        // An idle live source polls empty batches in a tight loop; skip the
-        // counter lookup when there is nothing to add.
-        if routed > 0 {
-            crate::obs::record_records(routed);
-        }
-        state.engines.stats.frames += spans.len() as u64;
-        if let Some(err) = fault {
-            return Err(err);
+        match step(&mut source, adapter, seq, tap, state, restart, &mut buffers)? {
+            Step::Closed => break,
+            Step::Retry => continue,
+            Step::Routed => {}
         }
         // batch boundary: a stop signal ends the loop only after the pulled
         // batch is fully routed, so no frame is half-processed.
@@ -478,10 +421,142 @@ where
             break;
         }
     }
+    flush_bars(state, seq)?;
+    Ok((state.engines.stats.clone(), source))
+}
+
+/// What one [`step`] did with the source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Step {
+    /// A batch was pulled, possibly empty, and every frame in it routed.
+    Routed,
+    /// The source's frame pool was exhausted; nothing was pulled.
+    Retry,
+    /// The source closed; nothing was pulled.
+    Closed,
+}
+
+/// Buffers one [`step`] fills and clears, allocated once per source.
+pub(crate) struct StepBuffers<F> {
+    batch: usize,
+    frames: Vec<F>,
+    events: Vec<MarketEvent>,
+    /// (stream, end index into `events`) per frame, in frame order.
+    spans: Vec<(StreamId, usize)>,
+    mbo_batch: Vec<Mbo>,
+}
+
+impl<F> StepBuffers<F> {
+    /// Buffers for steps that pull up to `batch` frames each.
+    pub(crate) fn new(batch: usize) -> Self {
+        StepBuffers {
+            batch,
+            frames: Vec::with_capacity(batch),
+            events: Vec::new(),
+            spans: Vec::with_capacity(batch),
+            mbo_batch: Vec::with_capacity(2),
+        }
+    }
+}
+
+/// Pulls one frame batch, taps and feeds every frame, then routes the batch's
+/// events and publishes them: the body [`run`] loops over.
+///
+/// # Errors
+///
+/// As [`run`]: a sink or tap failure, or a live frame whose anchor does not
+/// resolve. Frames fed before the fault in the batch still route and publish.
+pub(crate) fn step<A, Src, S, C, Tap>(
+    source: &mut Src,
+    adapter: &mut A,
+    seq: &mut EgressSequencer<S, C>,
+    tap: &mut Tap,
+    state: &mut SessionState,
+    restart: &mut RestartState,
+    buffers: &mut StepBuffers<Src::Frame>,
+) -> Result<Step, SessionError>
+where
+    A: DynAdapter + ?Sized,
+    Src: IngestSource,
+    S: OutputSink,
+    C: EgressClock,
+    Tap: CaptureTap,
+{
+    let StepBuffers {
+        batch,
+        frames,
+        events,
+        spans,
+        mbo_batch,
+    } = buffers;
+    frames.clear();
+    match source.recv_batch(frames, *batch) {
+        Ok(_) => {}
+        Err(IngestError::Closed) => return Ok(Step::Closed),
+        Err(IngestError::PoolExhausted { .. }) => return Ok(Step::Retry),
+    }
+    events.clear();
+    spans.clear();
+    let mut fault = None;
+    // Feed the whole batch before routing so the prefetch window crosses
+    // frames; an adapter's output does not depend on when it is drained.
+    for frame in frames.iter() {
+        if let Err(err) = tap.raw(frame.stream(), frame.ts_recv(), frame.payload()) {
+            fault = Some(err.into());
+            break;
+        }
+        if let Some(roll) = state.anchor_roll.as_mut()
+            && roll.due(frame.ts_recv())
+        {
+            match roll.roll(frame.ts_recv()) {
+                Ok(anchor) => adapter.set_session_anchor(anchor),
+                Err(err) => {
+                    fault = Some(err);
+                    break;
+                }
+            }
+        }
+        {
+            let _feed = crate::obs::stage_timer(crate::obs::STAGE_FEED);
+            adapter.feed(
+                frame.stream(),
+                frame.payload(),
+                frame.ts_recv(),
+                frame.venue_seq(),
+            );
+        }
+        adapter.drain_into(events);
+        spans.push((frame.stream(), events.len()));
+    }
+    route_events(events, spans, &mut state.engines, seq, restart, mbo_batch)?;
+    let routed = events.len() as u64;
+    state.engines.stats.records += routed;
+    // An idle live source polls empty batches in a tight loop; skip the
+    // counter lookup when there is nothing to add.
+    if routed > 0 {
+        crate::obs::record_records(routed);
+    }
+    state.engines.stats.frames += spans.len() as u64;
+    match fault {
+        Some(err) => Err(err),
+        None => Ok(Step::Routed),
+    }
+}
+
+/// Publishes every still-open OHLCV bar on [`SOURCE_STREAM`], as a session
+/// does once its source ends.
+pub(crate) fn flush_bars<S, C>(
+    state: &mut SessionState,
+    seq: &mut EgressSequencer<S, C>,
+) -> Result<(), SessionError>
+where
+    S: OutputSink,
+    C: EgressClock,
+{
     for bar in state.engines.ohlcv.flush_all() {
         publish_record(seq, SOURCE_STREAM, bar)?;
     }
-    Ok((state.engines.stats.clone(), source))
+    Ok(())
 }
 
 /// Routes one batch's events in emission order, each on the stream of the
