@@ -30,7 +30,7 @@ use datafeed::{
     tap::{MdCaptureTap, NoopTap},
     venue::NASDAQ,
 };
-use md_events::{Ohlcv, RecordHeader, decode_prefix, rtype};
+use md_events::{Ohlcv, decode_prefix, rtype};
 use md_pipeline::{
     EgressSequencer, IngestError, IngestFrame, IngestSource, OutputSink, RecordRef, SinkError,
     StreamId, VenueAdapter, VenueId, VirtualClock,
@@ -39,6 +39,7 @@ use proto_nasdaq::adapter::{self as nasdaq, NasdaqAdapter};
 use sha2::{Digest, Sha256};
 use support::{
     itch::{add, executed, stock_directory, system_event, trading_action},
+    record::header_bytes,
     reference_parity::open_binary_sample,
 };
 
@@ -157,18 +158,9 @@ impl DigestTap {
 
 // The sink hands header and body separately; a record's on-wire `repr(C)`
 // pattern is the two concatenated, so this reproduces exactly what a consumer
-// stores. Local to this binary: the parity harness in `tests/support` keeps its
-// own typed decode and exports no byte view.
+// stores.
 fn record_bytes(rec: &RecordRef<'_>) -> Vec<u8> {
-    // SAFETY: RecordHeader is Copy + repr(C) (md-events contract), so viewing
-    // it as its own byte pattern for size_of::<RecordHeader>() bytes reads
-    // nothing beyond the type.
-    let hdr = unsafe {
-        core::slice::from_raw_parts(
-            rec.header as *const RecordHeader as *const u8,
-            core::mem::size_of::<RecordHeader>(),
-        )
-    };
+    let hdr = header_bytes(rec.header);
     let mut out = Vec::with_capacity(hdr.len() + rec.body.len());
     out.extend_from_slice(hdr);
     out.extend_from_slice(rec.body);

@@ -27,13 +27,18 @@ pub enum FeedError {
     /// Closing the capture tap failed after the session ended.
     #[error(transparent)]
     Tap(#[from] CaptureTapError),
-    /// The tokio runtime that hosts the exporters and the live connect did not start.
+    /// The tokio runtime for the exporters or the live connect, or the thread a
+    /// live dial runs on, did not start.
     #[error("tokio runtime: {0}")]
     Runtime(#[source] io::Error),
     /// The metrics and logging pipeline did not install.
     #[cfg(feature = "observability")]
     #[error("observability init: {0}")]
     Observability(#[from] observability::PipelineError),
+    /// The source has ended and [`crate::FeedSession::poll`] has handed out
+    /// every record; every later poll returns this.
+    #[error("feed session closed")]
+    Closed,
 }
 
 impl From<ResolutionParseError> for FeedError {

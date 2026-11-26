@@ -150,16 +150,17 @@ pub enum SinkKind {
 /// Capture tap output directory: the raw pre-adapter stream. A bucket root, not
 /// a file; the tap lays out `<venue>/<version>/<YYYY-MM-DD>/` beneath and derives
 /// self-describing leaf names, so a run never names its own output. `raw_dir`
-/// drives the tap: unset runs the `NoopTap`, set runs `MdCaptureTap`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// drives the tap: unset runs the `NoopTap`, set runs `MdCaptureTap`. A key a
+/// file leaves out takes its [`Default`] value, so a block built in code with
+/// `..TapConfig::default()` matches the same block in a file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TapConfig {
     /// Retired. Normalized capture had no reader and was removed; raw capture is
     /// the replay source of truth and reproduces it. Kept only to reject a stale
     /// config loudly: it used to gate the whole tap, so ignoring it would turn
     /// capture off silently on every config that still sets it.
-    #[serde(default)]
     pub normalized_dir: Option<PathBuf>,
-    #[serde(default)]
     pub raw_dir: Option<PathBuf>,
     /// Trade date in the derived filename and the container header (`YYYYMMDD`).
     /// Unused when the tap is off. Live leaves it `0`: the tap takes the first
@@ -167,7 +168,6 @@ pub struct TapConfig {
     /// stale once a restart lands on a later day. On MDC1 replay `0` adopts the
     /// capture header's date and a nonzero value that disagrees is a startup
     /// error; any other replay with the tap on must set it.
-    #[serde(default)]
     pub capture_date: u32,
     /// Time-partition window as a duration token (`1d` default, `1h`, `30m`, ...),
     /// parsed by [`parse_resolution`] and counted from the venue session's open,
@@ -180,13 +180,19 @@ pub struct TapConfig {
     /// and the tap aborts the run with a window regression. Sub-day partitions
     /// on a dual-channel source are unsupported; the default `1d` is always
     /// safe.
-    #[serde(default = "default_partition")]
     pub partition: String,
 }
 
-/// Default time-partition window: one file per day.
-pub(crate) fn default_partition() -> String {
-    "1d".to_string()
+impl Default for TapConfig {
+    /// No capture, and a `1d` partition for when a raw dir is set.
+    fn default() -> Self {
+        TapConfig {
+            normalized_dir: None,
+            raw_dir: None,
+            capture_date: 0,
+            partition: "1d".to_string(),
+        }
+    }
 }
 
 /// Runtime observability wiring. Present turns the metrics gate on and picks a
@@ -385,7 +391,7 @@ mod tests {
                 raw_dir: Some(PathBuf::from("/tmp/raw")),
                 normalized_dir: Some(PathBuf::from("/tmp/normalized")),
                 capture_date: 20260101,
-                partition: default_partition(),
+                ..TapConfig::default()
             },
             ohlcv_resolutions: default_resolution_tokens(),
             observability: None,

@@ -1,4 +1,4 @@
-//! Replay container selection, pacing assembly, and the replay session.
+//! Replay container selection, pacing assembly, and the replay feed.
 
 use std::{fs, io::Read, path::Path, sync::atomic::AtomicBool};
 
@@ -7,11 +7,11 @@ use md_pipeline::{EgressSequencer, IngestError, IngestFrame, IngestSource, Strea
 use crate::{
     ConfigError, FeedError,
     config::{DatafeedConfig, LoadMode, PacingConfig, PacingModeConfig, ReplayFormat},
-    restart::RestartState,
-    session::{self, SessionState, SessionStats},
-    sink::AnySink,
+    feed::{Engine, Progress, run_batch},
+    record::RecordQueue,
+    session::StepBuffers,
     source::SourceError,
-    tap::{AnyTap, finish_capture},
+    venue::VenueDescriptor,
 };
 
 const BATCH_SIZE: usize = 64;
@@ -26,120 +26,119 @@ pub(crate) struct ReplayInput<'a> {
     pub pacing: &'a PacingConfig,
 }
 
-/// Replays one capture through the venue's adapter to source exhaustion. A
-/// multi-stream venue needs the capture container, the only one that tags
-/// rows with their stream. The tap finishes on every exit, so a replay
-/// that fails after tapping frames still leaves finished files and manifests.
-pub(crate) fn run(
-    config: &DatafeedConfig,
-    input: ReplayInput<'_>,
-    sink: AnySink,
-    mut tap: AnyTap,
-) -> Result<(), FeedError> {
-    let outcome = replay_session(config, input, sink, &mut tap);
-    let stats = finish_capture(config.venue.name, tap, outcome)?;
-    tracing::info!(venue = config.venue.name, ?stats, "replay session ended");
-    Ok(())
+type Paced<S> = md_replay::PacedSource<S, md_replay::ThreadSleepPacer>;
+
+/// An opened replay: its source and step buffers, and the sequencer stamping
+/// egress from the replayed clock.
+pub(crate) struct ReplayFeed {
+    venue: &'static VenueDescriptor,
+    seq: EgressSequencer<RecordQueue, md_replay::SharedClock>,
+    source: ReplaySource,
 }
 
-fn replay_session(
-    config: &DatafeedConfig,
-    input: ReplayInput<'_>,
-    sink: AnySink,
-    tap: &mut AnyTap,
-) -> Result<SessionStats, FeedError> {
-    let container = resolve_container(input.format, input.path)?;
-    if config.venue.streams.len() > 1 && container != md_replay::ContainerKind::Capture {
-        return Err(ConfigError::ReplayNeedsCapture {
-            venue: config.venue.name,
-            container,
-        }
-        .into());
-    }
-    reject_unsupported_eager(container, input.load)?;
-    let pacing = build_pacing(input.pacing)?;
-    let mut adapter = (config.venue.make)(config);
-    let clock = md_replay::SharedClock::new();
-    let mut sequence = EgressSequencer::new(sink, clock.clone());
-    let mut state = SessionState::from_config(config)?;
-    let mut restart = RestartState::default();
-    // replay runs to source exhaustion, never a signal; the runner takes the
-    // stop flag for signature parity with the live path.
-    let never = AtomicBool::new(false);
+enum ReplaySource {
+    Binary(
+        Paced<md_replay::BinaryFileReplay>,
+        StepBuffers<md_replay::BinaryFileFrame>,
+    ),
+    // The only container that tags rows with a stream; binary and pcap
+    // frames are all stream 0, which every venue declares.
+    Capture(
+        DeclaredStreams<Paced<md_replay::CaptureReplay>>,
+        StepBuffers<md_replay::CaptureFrame>,
+    ),
+    Pcap(
+        Paced<md_replay::PcapReplay>,
+        StepBuffers<md_replay::PcapFrame>,
+    ),
+}
 
-    let stats = match container {
-        md_replay::ContainerKind::BinaryFramed | md_replay::ContainerKind::Gzip => {
-            let source = open_binary(
+impl ReplayFeed {
+    /// Opens the capture `input` names for `config`'s venue. A multi-stream
+    /// venue needs the capture container, the only one that tags rows with
+    /// their stream.
+    pub(crate) fn open(
+        config: &DatafeedConfig,
+        input: ReplayInput<'_>,
+        queue: RecordQueue,
+    ) -> Result<Self, FeedError> {
+        let container = resolve_container(input.format, input.path)?;
+        if config.venue.streams.len() > 1 && container != md_replay::ContainerKind::Capture {
+            return Err(ConfigError::ReplayNeedsCapture {
+                venue: config.venue.name,
                 container,
-                input.path,
-                input.base_ts,
-                input.step_ns,
-                input.load,
-            )?;
-            let source = paced(source, pacing, &clock);
-            let (stats, source) = session::run(
-                source,
-                &mut *adapter,
-                &mut sequence,
-                tap,
-                &mut state,
-                &mut restart,
-                session::RunControl {
-                    batch: BATCH_SIZE,
-                    stop: &never,
-                },
-            )?;
-            fail_on_retained_io_error(source.source())?;
-            stats
-        }
-        // The only container that tags rows with a stream; binary and pcap
-        // frames are all stream 0, which every venue declares.
-        md_replay::ContainerKind::Capture => {
-            let source = md_replay::CaptureReplay::from_reader(open_file(input.path)?)
-                .map_err(SourceError::from)?;
-            let source = DeclaredStreams::new(paced(source, pacing, &clock), config.venue.streams);
-            let (stats, source) = session::run(
-                source,
-                &mut *adapter,
-                &mut sequence,
-                tap,
-                &mut state,
-                &mut restart,
-                session::RunControl {
-                    batch: BATCH_SIZE,
-                    stop: &never,
-                },
-            )?;
-            if let Some(stream) = source.undeclared {
-                return Err(SourceError::UndeclaredStream {
-                    venue: config.venue.name,
-                    stream,
-                    declared: config.venue.streams,
-                }
-                .into());
             }
-            stats
+            .into());
         }
-        md_replay::ContainerKind::Pcap => {
-            let source = md_replay::PcapReplay::from_reader(open_file(input.path)?)
-                .map_err(SourceError::from)?;
-            let source = paced(source, pacing, &clock);
-            session::run(
-                source,
-                &mut *adapter,
-                &mut sequence,
-                tap,
-                &mut state,
-                &mut restart,
-                session::RunControl {
-                    batch: BATCH_SIZE,
-                    stop: &never,
-                },
-            )?
-            .0
+        reject_unsupported_eager(container, input.load)?;
+        let pacing = build_pacing(input.pacing)?;
+        let clock = md_replay::SharedClock::new();
+        let source = match container {
+            md_replay::ContainerKind::BinaryFramed | md_replay::ContainerKind::Gzip => {
+                let source = open_binary(
+                    container,
+                    input.path,
+                    input.base_ts,
+                    input.step_ns,
+                    input.load,
+                )?;
+                ReplaySource::Binary(paced(source, pacing, &clock), StepBuffers::new(BATCH_SIZE))
+            }
+            md_replay::ContainerKind::Capture => {
+                let source = md_replay::CaptureReplay::from_reader(open_file(input.path)?)
+                    .map_err(SourceError::from)?;
+                let source =
+                    DeclaredStreams::new(paced(source, pacing, &clock), config.venue.streams);
+                ReplaySource::Capture(source, StepBuffers::new(BATCH_SIZE))
+            }
+            md_replay::ContainerKind::Pcap => {
+                let source = md_replay::PcapReplay::from_reader(open_file(input.path)?)
+                    .map_err(SourceError::from)?;
+                ReplaySource::Pcap(paced(source, pacing, &clock), StepBuffers::new(BATCH_SIZE))
+            }
+        };
+        Ok(ReplayFeed {
+            venue: config.venue,
+            seq: EgressSequencer::new(queue, clock),
+            source,
+        })
+    }
+
+    /// Replays one batch. Once the capture ends it fails on what the source
+    /// held back: a retained io error, or a row on an undeclared stream.
+    pub(crate) fn advance(
+        &mut self,
+        engine: &mut Engine,
+        stop: &AtomicBool,
+    ) -> Result<Progress, FeedError> {
+        match &mut self.source {
+            ReplaySource::Binary(source, buffers) => {
+                if !run_batch(source, buffers, &mut self.seq, engine, stop)? {
+                    return Ok(Progress::Running);
+                }
+                fail_on_retained_io_error(source.source())?;
+            }
+            ReplaySource::Capture(source, buffers) => {
+                if !run_batch(source, buffers, &mut self.seq, engine, stop)? {
+                    return Ok(Progress::Running);
+                }
+                if let Some(stream) = source.undeclared {
+                    return Err(SourceError::UndeclaredStream {
+                        venue: self.venue.name,
+                        stream,
+                        declared: self.venue.streams,
+                    }
+                    .into());
+                }
+            }
+            ReplaySource::Pcap(source, buffers) => {
+                if !run_batch(source, buffers, &mut self.seq, engine, stop)? {
+                    return Ok(Progress::Running);
+                }
+            }
         }
-    };
-    Ok(stats)
+        Ok(Progress::Ended)
+    }
 }
 
 fn open_binary(
@@ -315,7 +314,7 @@ fn paced<S: IngestSource>(
     source: S,
     pacing: md_replay::Pacing,
     clock: &md_replay::SharedClock,
-) -> md_replay::PacedSource<S, md_replay::ThreadSleepPacer> {
+) -> Paced<S> {
     md_replay::PacedSource::new(
         md_replay::ReplayDriver::new(source, md_replay::ThreadSleepPacer, pacing),
         clock.clone(),
@@ -334,7 +333,7 @@ mod tests {
         app::{CliOverrides, run},
         config::{
             DatafeedConfig, LoadMode, PacingConfig, ReplayFormat, SinkKind, SourceConfig,
-            TapConfig, default_partition, default_resolution_tokens,
+            TapConfig, default_resolution_tokens,
         },
         source::SourceError,
         venue::NASDAQ,
@@ -505,7 +504,6 @@ mod tests {
         let config_path = std::env::temp_dir().join("datafeed_undeclared_stream.json");
         let mut config = replay_config(&replay_path, ReplayFormat::Capture, LoadMode::Stream);
         config.taps.raw_dir = Some(raw_dir.clone());
-        config.taps.partition = default_partition();
         write_json(&config_path, &config);
 
         let error = run(config_path.clone(), CliOverrides::default())

@@ -1,23 +1,27 @@
-//! Live session assembly and the reconnect loop.
+//! Live feed: dialing, the frame batches, and the reconnect wait.
 
 use std::{
+    io,
+    mem::ManuallyDrop,
     net::SocketAddr,
+    panic,
     sync::atomic::{AtomicBool, Ordering},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use client_soupbintcp::SoupBinClientConfig;
-use md_pipeline::{EgressSequencer, IngestSource, StreamId, SystemClock};
+use md_pipeline::{EgressSequencer, StreamId, SystemClock};
+use tokio::runtime::Runtime;
+use transport_socket::tokio::TcpStream;
 
 use crate::{
     ConfigError, FeedError,
     config::{DatafeedConfig, SourceConfig},
-    restart::RestartState,
-    session::{self, SessionState},
-    sink::AnySink,
-    source::{self, SourceError},
-    tap::{AnyTap, finish_capture},
+    feed::{Engine, Progress, run_batch},
+    record::RecordQueue,
+    session::{SessionState, StepBuffers},
+    source::{self, DualLiveSource, LiveFrame, LiveSoupBinSource},
     venue::VenueDescriptor,
 };
 
@@ -29,12 +33,12 @@ fn reconnect_delay(consecutive_empty: u32) -> Duration {
     Duration::from_millis(100u64 << consecutive_empty.min(5))
 }
 
-/// Shutdown-latency bound for the reconnect wait: `pace` polls `stop` at this
-/// cadence, so a stop mid-backoff is observed within one increment.
+/// Longest one poll waits toward a reconnect, and so the shutdown latency
+/// while a reconnect is pending.
 const RECONNECT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Tracks consecutive sessions that closed without delivering frames, from
-/// the cumulative `SessionStats::frames` counter `session::run` returns.
+/// the cumulative `SessionStats::frames` counter.
 struct ReconnectPacer {
     prev_frames: u64,
     consecutive_empty: u32,
@@ -48,41 +52,38 @@ impl ReconnectPacer {
         }
     }
 
-    /// Sleeps before the next reconnect attempt; longer after each session
-    /// that closed without progress (login loop, dead venue). Wakes every
-    /// `RECONNECT_POLL_INTERVAL` to observe `stop`, so shutdown never waits the
-    /// full backoff cap.
-    fn pace(&mut self, total_frames: u64, stop: &AtomicBool) {
+    /// Delay before the next reconnect attempt; longer after each session
+    /// that closed without progress (login loop, dead venue).
+    fn next_delay(&mut self, total_frames: u64) -> Duration {
         if total_frames == self.prev_frames {
             self.consecutive_empty += 1;
         } else {
             self.consecutive_empty = 0;
         }
         self.prev_frames = total_frames;
-        sleep_interruptible(reconnect_delay(self.consecutive_empty), stop);
+        reconnect_delay(self.consecutive_empty)
     }
 }
 
-/// Sleeps up to `total`, returning early the moment `stop` is set. Checks the
-/// flag before each `RECONNECT_POLL_INTERVAL` step, so a pre-set flag returns
-/// without sleeping and worst-case latency is one increment.
-fn sleep_interruptible(total: Duration, stop: &AtomicBool) {
-    let mut remaining = total;
-    while remaining > Duration::ZERO {
-        if stop.load(Ordering::Relaxed) {
-            return;
-        }
-        let step = remaining.min(RECONNECT_POLL_INTERVAL);
-        thread::sleep(step);
-        remaining = remaining.saturating_sub(step);
+/// Waits toward `retry_at` for at most one `RECONNECT_POLL_INTERVAL`, so one
+/// poll never sleeps out a whole backoff. True once `retry_at` has passed or
+/// `stop` is set: the caller then dials, and a set `stop` aborts that dial.
+fn backoff_over(retry_at: Instant, stop: &AtomicBool) -> bool {
+    if stop.load(Ordering::Relaxed) {
+        return true;
     }
+    let now = Instant::now();
+    if now < retry_at {
+        thread::sleep((retry_at - now).min(RECONNECT_POLL_INTERVAL));
+    }
+    Instant::now() >= retry_at
 }
 
 /// What a live run dials, with the stream id each leg tags its frames with.
-enum LiveDial<'a> {
+enum LiveDial {
     Single {
         endpoint: SocketAddr,
-        soupbin: &'a SoupBinClientConfig,
+        soupbin: SoupBinClientConfig,
         stream: StreamId,
     },
     /// A two-stream venue's primary and secondary channel sessions; `streams` is primary,
@@ -90,7 +91,7 @@ enum LiveDial<'a> {
     Dual {
         primary_endpoint: SocketAddr,
         secondary_endpoint: SocketAddr,
-        soupbin: &'a SoupBinClientConfig,
+        soupbin: SoupBinClientConfig,
         streams: [StreamId; 2],
     },
 }
@@ -99,14 +100,14 @@ enum LiveDial<'a> {
 /// one-stream SoupBinTCP venue and `LiveDual` a two-stream one, whose first
 /// stream tags the primary leg and second the secondary leg (see
 /// [`VenueDescriptor::streams`]). `None` for any other pairing.
-fn live_dial<'a>(source: &'a SourceConfig, venue: &VenueDescriptor) -> Option<LiveDial<'a>> {
+fn live_dial(source: &SourceConfig, venue: &VenueDescriptor) -> Option<LiveDial> {
     if !venue.soupbin_live {
         return None;
     }
     match (source, venue.streams) {
         (SourceConfig::Live { endpoint, soupbin }, &[stream]) => Some(LiveDial::Single {
             endpoint: *endpoint,
-            soupbin,
+            soupbin: soupbin.clone(),
             stream,
         }),
         (
@@ -119,149 +120,213 @@ fn live_dial<'a>(source: &'a SourceConfig, venue: &VenueDescriptor) -> Option<Li
         ) => Some(LiveDial::Dual {
             primary_endpoint: *primary_endpoint,
             secondary_endpoint: *secondary_endpoint,
-            soupbin,
+            soupbin: soupbin.clone(),
             streams: [primary, secondary],
         }),
         _ => None,
     }
 }
 
-/// Runs a live venue session, reconnecting until `stop` is set or a fault ends
-/// it. [`live_dial`] picks one SoupBinTCP session or a primary plus secondary channel
-/// pair from the source and the venue's declared streams, and rejects
-/// any other pairing before dialing. A set `session_midnight_ns` is rejected
-/// too: a live run has no end date, and [`session::run`] installs each trade
-/// date's anchor from an unset one instead.
-pub(crate) fn run(
-    runtime: &tokio::runtime::Runtime,
-    config: &DatafeedConfig,
-    sink: AnySink,
-    tap: AnyTap,
-    stop: &AtomicBool,
-) -> Result<(), FeedError> {
-    if config.session_midnight_ns != 0 {
-        return Err(ConfigError::LiveAnchorSet {
-            session_midnight_ns: config.session_midnight_ns,
-        }
-        .into());
+/// The runtime that drives a live feed's connect and login. A host may poll
+/// and drop the session on a thread inside its own async runtime, where
+/// `Runtime::block_on` and a blocking runtime drop both panic, so a dial runs
+/// on a thread of its own and drop shuts the runtime down in the background.
+struct DialRuntime(ManuallyDrop<Runtime>);
+
+impl DialRuntime {
+    // The session reads the socket without yielding to the runtime once
+    // connected, so one worker driving the reactor is enough.
+    fn new() -> io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()?;
+        Ok(DialRuntime(ManuallyDrop::new(runtime)))
     }
-    match live_dial(&config.source, config.venue) {
-        Some(LiveDial::Single {
-            endpoint,
-            soupbin,
-            stream,
-        }) => reconnect(
-            config,
-            sink,
-            tap,
-            stop,
-            |restart| {
-                runtime.block_on(source::connect_tcp_resuming(
-                    endpoint, soupbin, stream, restart, stop,
-                ))
-            },
-            |source, restart| restart.capture_soupbin_resume(source.next_expected_sequence()),
-        ),
-        Some(LiveDial::Dual {
-            primary_endpoint,
-            secondary_endpoint,
-            soupbin,
-            streams,
-        }) => reconnect(
-            config,
-            sink,
-            tap,
-            stop,
-            |restart| {
-                runtime.block_on(source::connect_dual_resuming(
-                    primary_endpoint,
-                    secondary_endpoint,
-                    streams,
-                    soupbin,
-                    restart,
-                    stop,
-                ))
-            },
-            |source, restart| {
-                let (primary_next, secondary_next) = source.next_expected_sequences();
-                restart.capture_dual_resume(primary_next, secondary_next);
-            },
-        ),
-        None => Err(ConfigError::UnsupportedSource {
-            venue: config.venue.name,
-            source_kind: config.source.kind(),
-        }
-        .into()),
+
+    /// Runs `connect` to completion on a scoped thread outside any runtime
+    /// the caller is in. A panic inside `connect` resumes on the caller.
+    fn block_on<T: Send>(&self, connect: impl Future<Output = T> + Send) -> Result<T, FeedError> {
+        thread::scope(|scope| {
+            let dial = thread::Builder::new()
+                .name("datafeed-dial".into())
+                .spawn_scoped(scope, || self.0.block_on(connect))
+                .map_err(FeedError::Runtime)?;
+            Ok(dial
+                .join()
+                .unwrap_or_else(|payload| panic::resume_unwind(payload)))
+        })
     }
 }
 
-/// Reconnect loop over one live source shape: `connect` dials at the resume
-/// point `RestartState` holds, and `capture_resume` records where the source
-/// stopped once its session returns. A full replay rebuilds adapter and
-/// engine state.
-fn reconnect<Src: IngestSource>(
-    config: &DatafeedConfig,
-    sink: AnySink,
-    mut tap: AnyTap,
-    stop: &AtomicBool,
-    mut connect: impl FnMut(&mut RestartState) -> Result<Option<(Src, bool)>, SourceError>,
-    capture_resume: impl Fn(&Src, &mut RestartState),
-) -> Result<(), FeedError> {
-    let venue = config.venue.name;
-    let mut adapter = (config.venue.make)(config);
-    let mut sequence = EgressSequencer::new(sink, SystemClock);
-    let mut restart = RestartState::default();
-    let mut pacer = ReconnectPacer::new();
+impl Drop for DialRuntime {
+    fn drop(&mut self) {
+        // SAFETY: `drop` runs once, and nothing reads the field after it.
+        let runtime = unsafe { ManuallyDrop::take(&mut self.0) };
+        runtime.shutdown_background();
+    }
+}
 
-    // Capture the loop outcome instead of `?`-returning, so `finish_capture`
-    // runs on every exit: a mid-session connect or session fault breaks with
-    // the error, writers still close and manifests still write, then the fault
-    // propagates. `replay::run` routes its outcome through the same helper.
-    let outcome: Result<(), FeedError> = 'session: {
-        let mut state = match SessionState::from_config(config) {
-            Ok(state) => state,
-            Err(err) => break 'session Err(err.into()),
-        };
-        loop {
-            let connected = match connect(&mut restart) {
-                Ok(connected) => connected,
-                Err(err) => break 'session Err(err.into()),
-            };
-            let Some((source, replay)) = connected else {
-                break 'session Ok(());
-            };
-            if replay {
-                adapter = (config.venue.make)(config);
-                state = match SessionState::from_config(config) {
-                    Ok(state) => state,
-                    Err(err) => break 'session Err(err.into()),
-                };
+/// The connection a live feed reads, or the wait before its next dial.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one per live feed; boxing would allocate on every reconnect"
+)]
+enum Link {
+    /// Not connected: dial now, or once `retry_at` passes.
+    Down {
+        retry_at: Option<Instant>,
+    },
+    Single(LiveSoupBinSource<TcpStream>),
+    Dual(DualLiveSource<TcpStream>),
+}
+
+/// A live run: one SoupBinTCP session, or a primary and secondary pair,
+/// redialed at its resume point each time it closes. The adapter, engine
+/// state, tap, and `EgressSequencer` outlive every connection, so
+/// `egress_seq` stays one monotonic sequence across them.
+pub(crate) struct LiveFeed {
+    dial: LiveDial,
+    runtime: DialRuntime,
+    seq: EgressSequencer<RecordQueue, SystemClock>,
+    buffers: StepBuffers<LiveFrame>,
+    link: Link,
+    pacer: ReconnectPacer,
+}
+
+impl LiveFeed {
+    /// Checks that `config` is a live run the venue can dial. [`live_dial`]
+    /// refuses any source and venue pairing with no dial. A set
+    /// `session_midnight_ns` is refused too: a live run has no end date, and
+    /// the session installs each trade date's anchor from an unset one.
+    pub(crate) fn new(config: &DatafeedConfig, queue: RecordQueue) -> Result<Self, FeedError> {
+        if config.session_midnight_ns != 0 {
+            return Err(ConfigError::LiveAnchorSet {
+                session_midnight_ns: config.session_midnight_ns,
             }
-            let (stats, source) = match session::run(
-                source,
-                &mut *adapter,
-                &mut sequence,
-                &mut tap,
-                &mut state,
-                &mut restart,
-                session::RunControl {
-                    batch: BATCH_SIZE,
-                    stop,
-                },
-            ) {
-                Ok(session_outcome) => session_outcome,
-                Err(err) => break 'session Err(err.into()),
-            };
-            capture_resume(&source, &mut restart);
-            if stop.load(Ordering::Relaxed) {
-                break 'session Ok(());
-            }
-            tracing::warn!(venue, ?stats, "source closed; reconnecting");
-            pacer.pace(stats.frames, stop);
+            .into());
         }
-    };
+        let Some(dial) = live_dial(&config.source, config.venue) else {
+            return Err(ConfigError::UnsupportedSource {
+                venue: config.venue.name,
+                source_kind: config.source.kind(),
+            }
+            .into());
+        };
+        let runtime = DialRuntime::new().map_err(FeedError::Runtime)?;
+        Ok(LiveFeed {
+            dial,
+            runtime,
+            seq: EgressSequencer::new(queue, SystemClock),
+            buffers: StepBuffers::new(BATCH_SIZE),
+            link: Link::Down { retry_at: None },
+            pacer: ReconnectPacer::new(),
+        })
+    }
 
-    finish_capture(venue, tap, outcome)
+    /// Takes one step: a dial, one bounded slice of the reconnect wait, or one
+    /// frame batch. A source that closes records its resume point and
+    /// schedules the redial; `stop` ends the run instead.
+    pub(crate) fn advance(
+        &mut self,
+        engine: &mut Engine,
+        config: &DatafeedConfig,
+        stop: &AtomicBool,
+    ) -> Result<Progress, FeedError> {
+        let ended = match &mut self.link {
+            Link::Down { retry_at } => {
+                let retry_at = *retry_at;
+                if retry_at.is_some_and(|at| !backoff_over(at, stop)) {
+                    return Ok(Progress::Running);
+                }
+                return self.dial(engine, config, stop);
+            }
+            Link::Single(source) => {
+                let ended = run_batch(source, &mut self.buffers, &mut self.seq, engine, stop)?;
+                if ended {
+                    let next = source.next_expected_sequence();
+                    engine.restart.capture_soupbin_resume(next);
+                }
+                ended
+            }
+            Link::Dual(source) => {
+                let ended = run_batch(source, &mut self.buffers, &mut self.seq, engine, stop)?;
+                if ended {
+                    let (primary_next, secondary_next) = source.next_expected_sequences();
+                    engine
+                        .restart
+                        .capture_dual_resume(primary_next, secondary_next);
+                }
+                ended
+            }
+        };
+        if !ended {
+            return Ok(Progress::Running);
+        }
+        if stop.load(Ordering::Relaxed) {
+            return Ok(Progress::Ended);
+        }
+        let stats = engine.state.stats();
+        tracing::warn!(
+            venue = config.venue.name,
+            ?stats,
+            "source closed; reconnecting"
+        );
+        let retry_at = Instant::now() + self.pacer.next_delay(stats.frames);
+        self.link = Link::Down {
+            retry_at: Some(retry_at),
+        };
+        Ok(Progress::Running)
+    }
+
+    /// Dials at the resume point `engine.restart` holds. A full replay from
+    /// sequence 1 rebuilds the adapter and engine state; a dial `stop`
+    /// aborted ends the run.
+    fn dial(
+        &mut self,
+        engine: &mut Engine,
+        config: &DatafeedConfig,
+        stop: &AtomicBool,
+    ) -> Result<Progress, FeedError> {
+        let restart = &mut engine.restart;
+        let connected = match &self.dial {
+            LiveDial::Single {
+                endpoint,
+                soupbin,
+                stream,
+            } => self
+                .runtime
+                .block_on(source::connect_tcp_resuming(
+                    *endpoint, soupbin, *stream, restart, stop,
+                ))??
+                .map(|(source, replay)| (Link::Single(source), replay)),
+            LiveDial::Dual {
+                primary_endpoint,
+                secondary_endpoint,
+                soupbin,
+                streams,
+            } => self
+                .runtime
+                .block_on(source::connect_dual_resuming(
+                    *primary_endpoint,
+                    *secondary_endpoint,
+                    *streams,
+                    soupbin,
+                    restart,
+                    stop,
+                ))??
+                .map(|(source, replay)| (Link::Dual(source), replay)),
+        };
+        let Some((link, replay)) = connected else {
+            return Ok(Progress::Ended);
+        };
+        if replay {
+            engine.adapter = (config.venue.make)(config);
+            engine.state = SessionState::from_config(config)?;
+        }
+        self.link = link;
+        Ok(Progress::Running)
+    }
 }
 
 #[cfg(test)]
@@ -331,29 +396,34 @@ mod tests {
     }
 
     // A live run has no end date, so a set anchor goes stale at the first roll.
-    // Stop is pre-set, so the unset control returns before dialing.
+    // Stop is pre-set, so the unset control ends at its first poll, before dialing.
     #[test]
-    fn live_run_refuses_a_set_session_anchor() {
-        use crate::{sink::NullSink, tap::NoopTap};
+    fn live_session_refuses_a_set_session_anchor() {
+        use std::sync::Arc;
 
-        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-        let stop = AtomicBool::new(true);
-        let run_with = |session_midnight_ns: u64| {
-            let mut config: DatafeedConfig = serde_json::from_str(&format!(
-                r#"{{"venue":"nasdaq","venue_id":1,"session_midnight_ns":{session_midnight_ns},
-                    "source":{{"kind":"live","endpoint":"127.0.0.1:1"}}}}"#
-            ))
-            .expect("config parses");
-            config.venue = &NASDAQ_SOUPBIN;
-            let (sink, tap) = (AnySink::Null(NullSink), AnyTap::Noop(NoopTap));
-            run(&runtime, &config, sink, tap, &stop)
+        use crate::FeedSession;
+
+        let build_with = |session_midnight_ns: u64| {
+            let source = SourceConfig::Live {
+                endpoint: "127.0.0.1:1".parse().expect("loopback address"),
+                soupbin: Default::default(),
+            };
+            FeedSession::builder(&NASDAQ_SOUPBIN, source)
+                .venue_id(1)
+                .session_midnight_ns(session_midnight_ns)
+                .stop(Arc::new(AtomicBool::new(true)))
+                .build()
         };
-        run_with(0).expect("an unset anchor runs until the set stop ends it");
+        let mut unset = build_with(0).expect("an unset anchor builds");
+        assert!(
+            matches!(unset.poll(&mut Vec::new(), 1), Err(FeedError::Closed)),
+            "the set stop ends the run before it dials"
+        );
         let anchor = NASDAQ
             .session
             .resolve_anchor(20260424, &BundledTzdb::new())
             .expect("New York anchor resolves");
-        let err = run_with(anchor).expect_err("a set anchor is refused");
+        let err = build_with(anchor).err().expect("a set anchor is refused");
         assert!(
             matches!(
                 err,
@@ -361,6 +431,30 @@ mod tests {
             ),
             "got: {err}"
         );
+    }
+
+    // `block_on` and a blocking runtime drop both panic inside a host's runtime;
+    // the pre-set stop ends the dial once it runs on the session's runtime.
+    #[tokio::test]
+    async fn live_session_polls_and_closes_inside_a_host_runtime() {
+        use std::sync::Arc;
+
+        use crate::FeedSession;
+
+        let source = SourceConfig::Live {
+            endpoint: "127.0.0.1:1".parse().expect("loopback address"),
+            soupbin: Default::default(),
+        };
+        let mut session = FeedSession::builder(&NASDAQ_SOUPBIN, source)
+            .venue_id(1)
+            .stop(Arc::new(AtomicBool::new(true)))
+            .build()
+            .expect("a live session builds");
+        assert!(matches!(
+            session.poll(&mut Vec::new(), 1),
+            Err(FeedError::Closed)
+        ));
+        session.close().expect("close with no capture tap");
     }
 
     // Delay must stay bounded however long the venue is down: an uncapped
@@ -373,21 +467,27 @@ mod tests {
         assert_eq!(reconnect_delay(64), Duration::from_millis(3_200));
     }
 
-    // A stop flag already set must abort the backoff at once, well under
-    // reconnect_delay(1) = 200ms, so shutdown is never held by a pending
-    // reconnect. Bounds the wait to one poll increment.
+    // One poll must not sleep out a whole backoff: a wait toward a 3.2s retry
+    // sleeps at most one poll interval and reports the backoff still running,
+    // and a set stop ends the wait at once.
     #[test]
-    fn pace_returns_promptly_when_stopped() {
-        use std::time::Instant;
-
-        let stop = AtomicBool::new(true);
-        let mut pacer = ReconnectPacer::new();
+    fn backoff_wait_is_bounded_per_poll() {
+        let stop = AtomicBool::new(false);
+        let retry_at = Instant::now() + reconnect_delay(5);
         let start = Instant::now();
-        pacer.pace(0, &stop);
-        let elapsed = start.elapsed();
         assert!(
-            elapsed < Duration::from_millis(100),
-            "stopped pace returned in {elapsed:?}, expected under one poll increment"
+            !backoff_over(retry_at, &stop),
+            "the backoff is still running"
         );
+        let waited = start.elapsed();
+        assert!(
+            waited < reconnect_delay(1),
+            "one wait took {waited:?}, expected about one poll interval"
+        );
+
+        stop.store(true, Ordering::Relaxed);
+        let start = Instant::now();
+        assert!(backoff_over(retry_at, &stop), "a set stop ends the wait");
+        assert!(start.elapsed() < RECONNECT_POLL_INTERVAL);
     }
 }

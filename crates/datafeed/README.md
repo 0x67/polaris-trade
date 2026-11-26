@@ -220,6 +220,20 @@ To refresh the baseline:
    `baseline_host` and choose the tolerances again from at least three runs.
 5. Run the test command above.
 
+`benches/feed_session.rs` times the binary's record handoff. It replays the
+vendored order-book reference fixture, repeated 1,000 times, through
+`FeedSession::poll` and publishes each polled record as the binary does, then
+through `session::run`, which publishes in place, and prints the median ns per
+record of each and of their paired difference. It needs no capture and no
+feature:
+
+```bash
+cargo bench -p polaris-datafeed --bench feed_session
+```
+
+`BENCH_ROUNDS` sets the number of rounds per pass (31 when unset). It has no
+baseline or regression test.
+
 ## License
 
 MIT OR Apache-2.0, at your option.

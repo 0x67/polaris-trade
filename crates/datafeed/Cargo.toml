@@ -27,6 +27,12 @@ name = "nasdaq_pipeline"
 harness = false
 required-features = ["observability"]
 
+# The binary's per-record handoff through `FeedSession::poll` against the batch
+# runner over the vendored reference fixture. Needs no capture and no feature.
+[[bench]]
+name = "feed_session"
+harness = false
+
 [features]
 default = []
 # Compile-time gate for the whole observability seam. Off by default: a normal

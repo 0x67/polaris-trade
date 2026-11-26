@@ -176,7 +176,7 @@ impl SessionState {
     /// A live source with `session_midnight_ns == 0` also rolls the adapter
     /// anchor: [`run`] installs each trade date's anchor before the first frame
     /// received in that session feeds. An explicit anchor is left alone and never
-    /// rolls; the binary's live runner refuses one before dialing. Replay never
+    /// rolls; a live [`crate::FeedSession`] refuses one when it builds. Replay never
     /// rolls, since its `ts_recv` can be synthetic.
     pub fn from_config(config: &DatafeedConfig) -> Result<Self, ResolutionParseError> {
         let mut state = Self::new(resolve_resolutions(&config.ohlcv_resolutions)?);
@@ -185,6 +185,11 @@ impl SessionState {
             state.anchor_roll = Some(AnchorRoll::new(config.venue));
         }
         Ok(state)
+    }
+
+    /// Counters accumulated since this state was built.
+    pub fn stats(&self) -> &SessionStats {
+        &self.engines.stats
     }
 }
 
@@ -221,6 +226,8 @@ macro_rules! impl_record_mut {
                 &mut self.hdr
             }
         }
+        // `OwnedRecord` stores any published record inline.
+        const _: () = assert!(size_of::<$t>() <= crate::record::MAX_RECORD_LEN);
     };
 }
 
