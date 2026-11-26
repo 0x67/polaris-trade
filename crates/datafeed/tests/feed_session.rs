@@ -99,8 +99,8 @@ fn reference_replay(name: &str) -> (std::path::PathBuf, Published) {
 
 // Five records per poll into one growing `Vec` must give the host the runner's
 // records, byte for byte. The first batch routes far more than five and the
-// last step routes the closing OHLCV flush, so a record dropped past `max`, a
-// step that wrote over the host's records, or a lost held end breaks the match.
+// last step routes the closing OHLCV flush, so a record dropped past `max` or a
+// step that wrote over the host's records breaks the match.
 #[test]
 fn host_poll_receives_the_runner_records_then_closed() {
     let (path, expected) = reference_replay("datafeed_feed_session_runner.bin");
