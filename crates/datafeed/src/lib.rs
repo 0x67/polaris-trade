@@ -8,6 +8,7 @@
 
 pub mod app;
 pub mod config;
+pub mod error;
 pub mod restart;
 pub mod session;
 pub mod shutdown;
@@ -23,4 +24,4 @@ mod replay;
 mod session_window;
 mod wiring;
 
-pub(crate) type AppResult<T> = Result<T, Box<dyn std::error::Error>>;
+pub use error::{ConfigError, FeedError};

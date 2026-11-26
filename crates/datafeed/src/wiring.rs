@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    AppResult,
+    ConfigError,
     config::{DatafeedConfig, SinkKind, SourceConfig, parse_resolution},
     sink::{AnySink, CollectingSink, NullSink},
     tap::{AnyTap, MdCaptureTap, NoopTap},
@@ -15,14 +15,12 @@ const NS_PER_HOUR: u64 = 3_600_000_000_000;
 const NS_PER_MIN: u64 = 60_000_000_000;
 const NS_PER_SEC: u64 = 1_000_000_000;
 
-pub(crate) fn build_tap(config: &DatafeedConfig) -> AppResult<AnyTap> {
+pub(crate) fn build_tap(config: &DatafeedConfig) -> Result<AnyTap, ConfigError> {
     let taps = &config.taps;
     // It used to gate the whole tap, so silently ignoring it would turn capture
     // off on every config that still sets it. Refuse instead.
     if taps.normalized_dir.is_some() {
-        return Err(
-            "taps.normalized_dir was removed with normalized capture; use taps.raw_dir".into(),
-        );
+        return Err(ConfigError::RetiredNormalizedDir);
     }
     let Some(raw_dir) = &taps.raw_dir else {
         return Ok(AnyTap::Noop(NoopTap));
@@ -31,17 +29,10 @@ pub(crate) fn build_tap(config: &DatafeedConfig) -> AppResult<AnyTap> {
     // restart on a later day); replay takes it from the MDC1 header or config.
     match (&config.source, taps.capture_date) {
         (SourceConfig::Replay { .. }, 0) => {
-            return Err(
-                "taps.capture_date must resolve to a nonzero YYYYMMDD when a replay tap is on"
-                    .into(),
-            );
+            return Err(ConfigError::ReplayTapDateUnset);
         }
         (SourceConfig::Live { .. } | SourceConfig::LiveDual { .. }, date @ 1..) => {
-            return Err(format!(
-                "taps.capture_date {date} is set on a live source; leave it unset, live \
-                 capture takes the trade date from the first frame's session"
-            )
-            .into());
+            return Err(ConfigError::LiveTapDateSet { date });
         }
         _ => {}
     }
@@ -139,6 +130,7 @@ mod tests {
         NS_PER_DAY, NS_PER_HOUR, NS_PER_MIN, build_tap, capture_dir, capture_filename, window_label,
     };
     use crate::{
+        ConfigError,
         config::{
             DatafeedConfig, SinkKind, SourceConfig, TapConfig, default_partition,
             default_resolution_tokens,
@@ -239,7 +231,10 @@ mod tests {
             Ok(_) => panic!("retired normalized_dir must be rejected"),
             Err(e) => e,
         };
-        assert!(err.to_string().contains("normalized_dir"), "got: {err}");
+        assert!(
+            matches!(err, ConfigError::RetiredNormalizedDir),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -247,7 +242,7 @@ mod tests {
         let mut t = taps(None, Some(PathBuf::from("/out/raw")));
         t.partition = "5x".to_string();
         assert!(
-            build_tap(&config_with(t)).is_err(),
+            matches!(build_tap(&config_with(t)), Err(ConfigError::Resolution(_))),
             "malformed partition rejected"
         );
     }
@@ -273,7 +268,13 @@ mod tests {
                 Ok(_) => panic!("{:?} must be rejected", config.source),
                 Err(e) => e,
             };
-            assert!(err.to_string().contains("capture_date"), "got: {err}");
+            assert!(
+                matches!(
+                    err,
+                    ConfigError::ReplayTapDateUnset | ConfigError::LiveTapDateSet { .. }
+                ),
+                "got: {err}"
+            );
         }
     }
 

@@ -11,7 +11,7 @@ use client_soupbintcp::SoupBinClientConfig;
 use md_pipeline::{EgressSequencer, IngestSource, StreamId, SystemClock};
 
 use crate::{
-    AppResult,
+    ConfigError, FeedError,
     config::{DatafeedConfig, SourceConfig},
     restart::RestartState,
     session::{self, SessionState},
@@ -138,13 +138,11 @@ pub(crate) fn run(
     sink: AnySink,
     tap: AnyTap,
     stop: &AtomicBool,
-) -> AppResult<()> {
+) -> Result<(), FeedError> {
     if config.session_midnight_ns != 0 {
-        return Err(format!(
-            "session_midnight_ns {} is set on a live source; leave it unset, live installs \
-             each trade date's anchor from frame receive time",
-            config.session_midnight_ns
-        )
+        return Err(ConfigError::LiveAnchorSet {
+            session_midnight_ns: config.session_midnight_ns,
+        }
         .into());
     }
     match live_dial(&config.source, config.venue) {
@@ -189,10 +187,10 @@ pub(crate) fn run(
                 restart.capture_dual_resume(primary_next, secondary_next);
             },
         ),
-        None => Err(format!(
-            "unsupported venue/source combination: {:?} / {:?}",
-            config.venue.name, config.source
-        )
+        None => Err(ConfigError::UnsupportedSource {
+            venue: config.venue.name,
+            config_source: Box::new(config.source.clone()),
+        }
         .into()),
     }
 }
@@ -208,7 +206,7 @@ fn reconnect<Src: IngestSource>(
     stop: &AtomicBool,
     mut connect: impl FnMut(&mut RestartState) -> Result<Option<(Src, bool)>, SourceError>,
     capture_resume: impl Fn(&Src, &mut RestartState),
-) -> AppResult<()> {
+) -> Result<(), FeedError> {
     let venue = config.venue.name;
     let mut adapter = (config.venue.make)(config);
     let mut sequence = EgressSequencer::new(sink, SystemClock);
@@ -219,7 +217,7 @@ fn reconnect<Src: IngestSource>(
     // runs on every exit: a mid-session connect or session fault breaks with
     // the error, writers still close and manifests still write, then the fault
     // propagates. `replay::run` routes its outcome through the same helper.
-    let outcome: AppResult<()> = 'session: {
+    let outcome: Result<(), FeedError> = 'session: {
         let mut state = match SessionState::from_config(config) {
             Ok(state) => state,
             Err(err) => break 'session Err(err.into()),
@@ -357,7 +355,10 @@ mod tests {
             .expect("New York anchor resolves");
         let err = run_with(anchor).expect_err("a set anchor is refused");
         assert!(
-            err.to_string().contains("session_midnight_ns"),
+            matches!(
+                err,
+                FeedError::Config(ConfigError::LiveAnchorSet { session_midnight_ns }) if session_midnight_ns == anchor
+            ),
             "got: {err}"
         );
     }
