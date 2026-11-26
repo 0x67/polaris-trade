@@ -62,6 +62,17 @@ jobs:
         cargo check -p polaris-orderbook --locked
         cargo check -p polaris-pipeline --locked
 
+  # polaris-datafeed without `bin`: the embedded build links no signal handler
+  # or subscriber install, and the host_process test proves a session leaves
+  # both alone. Every other job builds it with its default `bin` feature.
+  datafeed-embedded:
+    uses: 0x67/ci/.github/workflows/rust-features.yml@main
+    with:
+      install-nextest: true
+      extra-commands: |
+        cargo clippy -p polaris-datafeed --all-targets --locked --no-default-features -- -D warnings
+        cargo nextest run -p polaris-datafeed --locked --no-default-features
+
   # DPDK driver leg: needs libdpdk, Linux only. Checked apart from the
   # workspace jobs above so a missing system lib never blocks the portable path.
   dpdk:
