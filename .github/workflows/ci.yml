@@ -12,12 +12,10 @@ permissions:
   pull-requests: read
 
 jobs:
-  # whole workspace, default features. Linux only while the repo is private
-  # (macOS bills 10x); drop os-matrix for the full 3-OS matrix once it goes public.
+  # whole workspace, default features, on the shared Linux, macOS and Windows
+  # stable matrix.
   rust:
     uses: 0x67/ci/.github/workflows/rust-ci.yml@main
-    with:
-      os-matrix: '["ubuntu-latest"]'
 
   # same workspace with every host-buildable feature on. list matches
   # lefthook.yml verbatim; driver-dpdk stays out, macOS/Windows have no libdpdk.
@@ -26,7 +24,6 @@ jobs:
   rust-features:
     uses: 0x67/ci/.github/workflows/rust-ci.yml@main
     with:
-      os-matrix: '["ubuntu-latest"]'
       concurrency-key: features
       workspace-args: --features polaris-transport-core/testing,polaris-transport-core/observability,polaris-transport-socket/tokio,polaris-transport-socket/mio,polaris-transport-socket/observability,polaris-transport-io-uring/observability,polaris-transport-afxdp/observability,polaris-transport-dpdk/observability,polaris-client-moldudp/observability,polaris-client-soupbintcp/tokio,polaris-client-soupbintcp/observability,polaris-orderbook/testing,polaris-pipeline/tz,polaris-pipeline/testing,polaris-venue-nasdaq/adapter,polaris-datafeed/observability
 
