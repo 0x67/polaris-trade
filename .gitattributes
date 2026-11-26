@@ -1,0 +1,5 @@
+# LF in every checkout, Windows included: the codegen drift tests and the
+# fixture readers compare committed text byte for byte.
+* text=auto eol=lf
+*.bin -text
+fuzz/corpus/** -text
