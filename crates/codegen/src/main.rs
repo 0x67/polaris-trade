@@ -9,8 +9,8 @@ use std::{
 use proto_codegen::{
     cli::{
         PruneError, check_outputs, discover_record_schema_paths, discover_schema_paths,
-        ensure_venue_crate_exists, find_orphans, prune_orphans, repo_root, venue_crate_dir,
-        write_outputs,
+        ensure_venue_crate_exists, find_orphans, prune_orphans, repo_root, schema_rel_path,
+        venue_crate_dir, write_outputs,
     },
     emit::{generate, owned_module_dir},
     record_emit::{GEN_DIR, generate_records},
@@ -79,9 +79,9 @@ fn main() -> ExitCode {
             }
         };
 
-        let rel = path.strip_prefix(&root).unwrap_or(path);
+        let rel = schema_rel_path(&root, path);
         let crate_dir = venue_crate_dir(&schema);
-        let files = match generate(&schema, &crate_dir, &rel.to_string_lossy(), &bytes) {
+        let files = match generate(&schema, &crate_dir, &rel, &bytes) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("{e}");
@@ -150,8 +150,8 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         };
-        let rel = path.strip_prefix(&root).unwrap_or(path);
-        let files = match generate_records(&schema, &rel.to_string_lossy(), &bytes) {
+        let rel = schema_rel_path(&root, path);
+        let files = match generate_records(&schema, &rel, &bytes) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("{e}");

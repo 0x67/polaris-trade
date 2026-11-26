@@ -10,7 +10,7 @@
 use std::{thread::sleep, time::Duration};
 
 use proto_codegen::{
-    cli::{discover_schema_paths, repo_root, venue_crate_dir},
+    cli::{discover_schema_paths, repo_root, schema_rel_path, venue_crate_dir},
     emit::generate,
     schema::SchemaFile,
 };
@@ -54,9 +54,9 @@ fn committed_output_is_fresh() {
             Err(e) => panic!("stable schema {} failed to load: {e}", path.display()),
         };
 
-        let rel = path.strip_prefix(&root).unwrap_or(path);
+        let rel = schema_rel_path(&root, path);
         let crate_dir = venue_crate_dir(&schema);
-        let files = match generate(&schema, &crate_dir, &rel.to_string_lossy(), &second) {
+        let files = match generate(&schema, &crate_dir, &rel, &second) {
             Ok(f) => f,
             Err(e) => panic!("stable schema {} failed to generate: {e}", path.display()),
         };

@@ -25,6 +25,15 @@ pub fn repo_root() -> PathBuf {
         .expect("repo root must exist on disk")
 }
 
+/// `path` relative to `root` with `/` separators on every host: the provenance
+/// header records it, so the committed output must not depend on the OS.
+pub fn schema_rel_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 /// recursively collect every `.yaml` file under `dir`, sorted for deterministic ordering.
 /// a missing or unreadable `dir` yields an empty list (fresh repo with no schemas is legal).
 ///
