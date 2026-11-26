@@ -2,20 +2,21 @@
 //! and, when the config asks for it, the metrics recorder and exporter.
 
 use datafeed::{FeedError, config::ObservabilityConfig};
+#[cfg(feature = "observability")]
 use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
 
-#[cfg(feature = "observability")]
-type Guard = observability::ObsGuard;
-#[cfg(not(feature = "observability"))]
-type Guard = std::convert::Infallible;
-
 /// The exporter guard and the runtime its background tasks run on. Dropping
 /// it stops the exporter first, then the runtime.
+#[cfg(feature = "observability")]
 pub struct Telemetry {
-    _guard: Guard,
+    _guard: observability::ObsGuard,
     _runtime: Runtime,
 }
+
+/// Without the feature no exporter exists, so no value is ever built.
+#[cfg(not(feature = "observability"))]
+pub type Telemetry = std::convert::Infallible;
 
 /// Install the process logging and metrics for one run. With an
 /// observability config the recorder, exporter and JSON logs come up on a
@@ -26,18 +27,7 @@ pub fn install(cfg: Option<&ObservabilityConfig>) -> Result<Option<Telemetry>, F
         install_fallback_logging();
         return Ok(None);
     };
-    // Exporter background tasks (prometheus listener / otlp pusher) spawn on
-    // this runtime; enter it during init so they attach here and keep serving
-    // through the run.
-    let runtime = Runtime::new().map_err(FeedError::Runtime)?;
-    let guard = {
-        let _enter = runtime.enter();
-        install_pipeline(cfg)?
-    };
-    Ok(Some(Telemetry {
-        _guard: guard,
-        _runtime: runtime,
-    }))
+    install_exporter(cfg).map(Some)
 }
 
 /// `try_init` Err is ignored: only reachable if a subscriber already exists,
@@ -54,7 +44,7 @@ fn install_fallback_logging() {
 /// A config asking for observability without the feature is a hard error, so
 /// a deployment never silently runs blind against its own request.
 #[cfg(not(feature = "observability"))]
-fn install_pipeline(_cfg: &ObservabilityConfig) -> Result<Guard, FeedError> {
+fn install_exporter(_cfg: &ObservabilityConfig) -> Result<Telemetry, FeedError> {
     Err(datafeed::ConfigError::ObservabilityUnavailable.into())
 }
 
@@ -68,12 +58,18 @@ fn install_pipeline(_cfg: &ObservabilityConfig) -> Result<Guard, FeedError> {
 /// static, and this arms what the session timers read. Entries that differ link
 /// two copies, and arming one leaves the other's timers dark.
 #[cfg(feature = "observability")]
-fn install_pipeline(cfg: &ObservabilityConfig) -> Result<Guard, FeedError> {
+fn install_exporter(cfg: &ObservabilityConfig) -> Result<Telemetry, FeedError> {
     use datafeed::config::MetricsExporterConfig;
     use observability::{
         LogFormat, LogSink, LogSinkKind, LoggingConfig, MetricsConfig, MetricsExporter, ObsConfig,
         OtlpConfig, OtlpProtocol, PipelineConfig,
     };
+
+    // Exporter background tasks (prometheus listener / otlp pusher) spawn on
+    // this runtime; enter it during init so they attach here and keep serving
+    // through the run.
+    let runtime = Runtime::new().map_err(FeedError::Runtime)?;
+    let _enter = runtime.enter();
 
     let (otlp, exporter) = match &cfg.exporter {
         MetricsExporterConfig::Prometheus { bind } => {
@@ -116,5 +112,9 @@ fn install_pipeline(cfg: &ObservabilityConfig) -> Result<Guard, FeedError> {
 
     observability_core::set_metrics_enabled(true);
     observability_core::refresh_thread_gate();
-    Ok(guard)
+    drop(_enter);
+    Ok(Telemetry {
+        _guard: guard,
+        _runtime: runtime,
+    })
 }
