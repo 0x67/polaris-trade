@@ -4,7 +4,7 @@ One binary runs one venue market-data session, live or replay, selected by confi
 
 ## Config-driven venue selection
 
-[[crates/datafeed/src/config.rs#DatafeedConfig]] picks a venue by name (`nasdaq` is the one built-in) and a source (`Live`, `LiveDual`, `Replay`). [[crates/datafeed/src/feed.rs#FeedSessionBuilder#build]] dispatches on the source kind alone, never on the venue.
+[[crates/datafeed/src/config.rs#DatafeedConfig]] picks a venue by name (`nasdaq` is the one built-in) and a source (`Live`, `LiveDual`, `Replay`). [[crates/datafeed/src/feed.rs#FeedSessionBuilder#build_with_sink]] dispatches on the source kind alone, never on the venue.
 
 The venue name resolves against [[crates/datafeed/src/venue.rs#VENUES]], the built-in descriptor slice, while the config loads, so an unknown venue fails at startup. The resolved [[crates/datafeed/src/venue.rs#VenueDescriptor]] carries the venue's storage `tag`, feed `version`, MDC1 `feed_id`, trading-day `session` model, ingest `streams`, whether it runs live over SoupBinTCP (`soupbin_live`), and a `make` constructor as data. Adding a venue adds a descriptor in `venue.rs` and no glue module. Descriptors have no `PartialEq`: identity is the name, since comparing the `make` fn pointer is unpredictable.
 
@@ -197,7 +197,7 @@ Stamped records leave the process through an `md_pipeline::OutputSink`; the sess
 
 ## Typed library errors
 
-The run entry points ([[crates/datafeed/src/app.rs#run]] and `run_config`) and the feed session (`FeedSessionBuilder::build`, `FeedSession::poll` and `close`) return [[crates/datafeed/src/error.rs#FeedError]], so a host branches on the variant, not message text.
+The run entry points ([[crates/datafeed/src/app.rs#run]] and `run_config`) and the feed sessions (`FeedSessionBuilder::build` and `build_with_sink`, `FeedSession::poll` and `close`, `SinkSession::poll` and `close`) return [[crates/datafeed/src/error.rs#FeedError]]. A host matches its variant instead of parsing message text.
 
 Lower-level entry points return the inner error directly: `session::run` returns `SessionError`, the `source::connect_*` functions return `SourceError`, and `AnyTap::finish` returns `CaptureTapError`.
 
