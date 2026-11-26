@@ -111,7 +111,6 @@ impl<S: OutputSink> SinkSession<S> {
     /// Once the source ends, [`FeedError::Closed`], or the fault that ended
     /// it (sink, tap, anchor, or source) once and then `Closed`. The records
     /// routed before the end are already in the sink.
-    #[inline]
     pub fn poll(&mut self) -> Result<(), FeedError> {
         if self.ended {
             return Err(FeedError::Closed);
