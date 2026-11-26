@@ -34,7 +34,7 @@ use datafeed::{
     session::{self, SessionState, SessionStats},
     tap::NoopTap,
 };
-use md_events::{RecordHeader, rtype};
+use md_events::rtype;
 use md_pipeline::{
     AdapterStats, DynAdapter, EgressSequencer, IngestSource, OutputSink, RecordRef, SinkError,
 };
@@ -42,7 +42,7 @@ use md_replay::{
     BinaryFileReplay, PacedSource, Pacing, PacingMode, ReplayDriver, SharedClock, ThreadSleepPacer,
 };
 use sha2::{Digest, Sha256};
-use support::reference_parity::binary_dump;
+use support::{record::header_bytes, reference_parity::binary_dump};
 
 // mirrors BATCH_SIZE in src/replay.rs
 const BATCH_SIZE: usize = 64;
@@ -67,14 +67,7 @@ struct DigestSink {
 
 impl OutputSink for DigestSink {
     fn publish(&mut self, rec: RecordRef<'_>) -> Result<(), SinkError> {
-        // SAFETY: RecordHeader is repr(C) with no implicit padding (explicit `_pad`,
-        // 56-byte size const-asserted in md-events), so all 56 bytes are initialized.
-        let header = unsafe {
-            core::slice::from_raw_parts(
-                rec.header as *const RecordHeader as *const u8,
-                core::mem::size_of::<RecordHeader>(),
-            )
-        };
+        let header = header_bytes(rec.header);
         let stream = self
             .per_stream
             .entry((rec.stream.0, rec.header.rtype))

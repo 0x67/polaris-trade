@@ -4,7 +4,7 @@ Test specs for `polaris-datafeed`: determinism and parity gates over the session
 
 Tests that need a venue run on NASDAQ: `NasdaqAdapter`, the `NASDAQ` descriptor, `proto_nasdaq::FEED_NASDAQ` (3), New York session timestamps, and capture paths under `nasdaq/v5/`. A test that needs a property the built-in descriptor lacks builds a test-only descriptor from it with struct-update syntax (`..NASDAQ`). Expected values come from the in-test inputs and the descriptor. [[tests#Seam parity gate]] and [[tests#Order book reference parity]] are the gates that compare against committed fixtures.
 
-The integration test binaries share one set of ITCH 5.0 message builders in `tests/support/itch.rs` (system event, stock directory, trading action, add, executed, delete), sized from the generated `proto_nasdaq::itch_v5` views.
+The integration test binaries share one set of ITCH 5.0 message builders in `tests/support/itch.rs` (system event, stock directory, trading action, add, executed, delete), sized from the generated `proto_nasdaq::itch_v5` views. The binaries that hash or compare records as a sink stores them read each header's bytes through [[crates/datafeed/tests/support/record.rs#header_bytes]].
 
 ## Output determinism
 

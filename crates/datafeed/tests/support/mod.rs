@@ -4,4 +4,6 @@
 #[allow(dead_code)]
 pub mod itch;
 #[allow(dead_code)]
+pub mod record;
+#[allow(dead_code)]
 pub mod reference_parity;

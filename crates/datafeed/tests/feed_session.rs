@@ -14,12 +14,12 @@ use datafeed::{
     tap::NoopTap,
     venue::NASDAQ,
 };
-use md_events::{RecordHeader, rtype};
+use md_events::rtype;
 use md_pipeline::{EgressSequencer, OutputSink, RecordRef, SinkError, StreamId};
 use md_replay::{
     BinaryFileReplay, PacedSource, Pacing, PacingMode, ReplayDriver, SharedClock, ThreadSleepPacer,
 };
-use support::{itch, reference_parity::binary_dump};
+use support::{itch, record::header_bytes, reference_parity::binary_dump};
 
 const STREAM_HEX: &str = include_str!("fixtures/orderbook-reference/stream.hex");
 // venue id every NASDAQ test uses; a BinaryFILE has no header to adopt one from
@@ -31,15 +31,8 @@ struct BytesSink(Vec<(StreamId, Vec<u8>)>);
 
 impl OutputSink for BytesSink {
     fn publish(&mut self, rec: RecordRef<'_>) -> Result<(), SinkError> {
-        // SAFETY: RecordHeader is repr(C) with no implicit padding (explicit `_pad`,
-        // 56-byte size const-asserted in md-events), so all 56 bytes are initialized.
-        let header = unsafe {
-            core::slice::from_raw_parts(
-                rec.header as *const RecordHeader as *const u8,
-                size_of::<RecordHeader>(),
-            )
-        };
-        self.0.push((rec.stream, [header, rec.body].concat()));
+        self.0
+            .push((rec.stream, [header_bytes(rec.header), rec.body].concat()));
         Ok(())
     }
 }
