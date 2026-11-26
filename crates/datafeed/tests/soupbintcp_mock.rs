@@ -14,46 +14,14 @@ use md_pipeline::{
     EgressSequencer, IngestFrame, IngestSource, StreamId, SystemClock, VenueAdapter, VenueId,
 };
 use proto_nasdaq::adapter::{self as nasdaq, NasdaqAdapter};
-use support::itch;
+use support::{
+    itch,
+    soupbin::{build_packet, login_accepted_packet},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-
-/// Builds one logical SoupBinTCP packet: `Length[2 BE] + Type[1] + payload`.
-fn build_packet(ty: u8, payload: &[u8]) -> Vec<u8> {
-    let len = 1 + payload.len();
-    let mut out = Vec::with_capacity(2 + len);
-    out.extend_from_slice(&(len as u16).to_be_bytes());
-    out.push(ty);
-    out.extend_from_slice(payload);
-    out
-}
-
-fn ascii_left_justify(s: &str, width: usize) -> Vec<u8> {
-    let mut buf = vec![b' '; width];
-    let bytes = s.as_bytes();
-    let n = bytes.len().min(width);
-    buf[..n].copy_from_slice(&bytes[..n]);
-    buf
-}
-
-fn ascii_right_justify_numeric(n: u64, width: usize) -> Vec<u8> {
-    let digits = n.to_string();
-    let mut buf = vec![b' '; width];
-    let bytes = digits.as_bytes();
-    let take = bytes.len().min(width);
-    let start = width - take;
-    buf[start..start + take].copy_from_slice(&bytes[bytes.len() - take..]);
-    buf
-}
-
-fn login_accepted_packet(session: &str, sequence: u64) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(30);
-    payload.extend_from_slice(&ascii_left_justify(session, 10));
-    payload.extend_from_slice(&ascii_right_justify_numeric(sequence, 20));
-    build_packet(b'A', &payload)
-}
 
 async fn read_packet(sock: &mut TcpStream) -> (u8, Vec<u8>) {
     let mut len = [0u8; 2];

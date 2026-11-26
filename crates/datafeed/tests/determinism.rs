@@ -38,6 +38,7 @@ use md_pipeline::{
 use proto_nasdaq::adapter::{self as nasdaq, NasdaqAdapter};
 use sha2::{Digest, Sha256};
 use support::{
+    capture_tree::output_tree,
     itch::{add, executed, stock_directory, system_event, trading_action},
     record::header_bytes,
     reference_parity::open_binary_sample,
@@ -609,34 +610,6 @@ fn non_trade_flushes_due_bar_mid_stream() {
         order.iter().filter(|&&rt| rt == rtype::OHLCV).count() >= 2,
         "coarser bars flush at session end"
     );
-}
-
-// Walk an output tree into (relative path, bytes) pairs, sorted by path, so two
-// trees compare independent of read-dir order.
-fn output_tree(root: &Path) -> Vec<(String, Vec<u8>)> {
-    fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) {
-        let mut paths: Vec<_> = std::fs::read_dir(dir)
-            .expect("read_dir")
-            .map(|e| e.expect("dir entry").path())
-            .collect();
-        paths.sort();
-        for p in paths {
-            if p.is_dir() {
-                walk(&p, base, out);
-            } else {
-                let rel = p
-                    .strip_prefix(base)
-                    .expect("under base")
-                    .to_string_lossy()
-                    .into_owned();
-                out.push((rel, std::fs::read(&p).expect("read file")));
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(root, root, &mut out);
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
 }
 
 // Replay the synthetic stream into a fresh MdCaptureTap under one partition,
