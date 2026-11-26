@@ -4,7 +4,7 @@ Test specs for `polaris-datafeed`: determinism and parity gates over the session
 
 Tests that need a venue run on NASDAQ: `NasdaqAdapter`, the `NASDAQ` descriptor, `proto_nasdaq::FEED_NASDAQ` (3), New York session timestamps, and capture paths under `nasdaq/v5/`. A test that needs a property the built-in descriptor lacks builds a test-only descriptor from it with struct-update syntax (`..NASDAQ`). Expected values come from the in-test inputs and the descriptor. [[tests#Seam parity gate]] and [[tests#Order book reference parity]] are the gates that compare against committed fixtures.
 
-The integration test binaries share one set of ITCH 5.0 message builders in `tests/support/itch.rs` (system event, stock directory, trading action, add, executed, delete), sized from the generated `proto_nasdaq::itch_v5` views. The binaries that hash or compare records as a sink stores them read each header's bytes through [[crates/datafeed/tests/support/record.rs#header_bytes]].
+The integration test binaries share one set of ITCH 5.0 message builders in `tests/support/itch.rs` (system event, stock directory, trading action, add, executed, delete), sized from the generated `proto_nasdaq::itch_v5` views. `tests/support/digest.rs` holds the digest sink and replay assembly of the seam gate, `tests/support/capture_tree.rs` the capture tree reader and manifest check, and `tests/support/soupbin.rs` the packet builders of the mock servers. The binaries that hash or compare records as a sink stores them read each header's bytes through [[crates/datafeed/tests/support/record.rs#header_bytes]].
 
 ## Output determinism
 
@@ -120,6 +120,30 @@ These cases need a client built without `compressed`, because the mock writes pl
 `tests/host_process.rs` is unix-only and holds two cases: one builds, polls and closes a replay `FeedSession`, the other runs a replay config through `app::run_config` with a never-set stop flag.
 
 Each reads the SIGINT and SIGTERM dispositions before and after and expects them unchanged, and expects no global `tracing` subscriber. A library that registered a handler or installed a subscriber, in the session or in `run_config`, fails it. CI runs it with `--no-default-features` in the `datafeed-embedded` job, where the `bin` feature and its crates are absent from the build.
+
+## Deployed binary
+
+`tests/binary_deploy.rs` runs the built `datafeed` binary on the vendored order book reference fixture with a raw capture tap, and compares what it leaves on disk with the library path and the committed seam baseline.
+
+The binary's sink discards records, so its normalized output is visible only through the capture. The target is declared with `required-features = ["bin"]`, so builds without the feature (the `datafeed-embedded` job, the pre-push hook) skip it.
+
+### Binary capture matches the library and the baseline
+
+The binary exits 0 and writes the same capture tree as `app::run_config` over the same config, with every manifest verified, and the records rebuilt from its capture match the committed digests.
+
+[[crates/datafeed/tests/binary_deploy.rs#binary_capture_tree_matches_the_library_path_and_the_seam_baseline]] runs one JSON config through the binary and through [[crates/datafeed/src/app.rs#run_config]] with a different `raw_dir`, and requires equal trees, manifests included. [[crates/datafeed/tests/support/capture_tree.rs#assert_manifests_verify]] checks each listed file against its sha256 and its record count, and that no capture leaf sits outside a manifest. The leaf then replays through the adapter and its digests must equal the `nasdaq-orderbook-reference` lines of [[tests#Seam parity gate]], so a binary that dropped or reordered frames fails even when it matches the library.
+
+### SIGINT during a replay changes nothing
+
+A replay ignores the stop flag, so a SIGINT in the middle of one neither kills the process nor shortens the capture.
+
+[[crates/datafeed/tests/binary_deploy.rs#sigint_during_a_replay_leaves_the_tree_of_an_undisturbed_run]] is unix-only. It paces a replay in real time at 100 ms per frame, waits until the first capture file exists, sends SIGINT, and requires exit status 0, a tree equal to an unpaced library run, and verified manifests. A change that lets a replay stop on SIGINT fails it on purpose: amend it together with the replay contract.
+
+## Live shutdown
+
+A live session whose stop flag is set mid-run ends, and closing it finishes the tap and writes the manifest. The binary cannot show this, because NASDAQ declares no live source.
+
+[[crates/datafeed/tests/live_shutdown.rs#stop_mid_run_finishes_the_tap_and_writes_the_manifest]] builds a `FeedSession` on a test-only descriptor with `soupbin_live: true` against an in-process SoupBinTCP server that sends a system event and an add and then holds the connection open. It sets the flag once two records have arrived, polls to `Closed`, closes the session, and requires one manifest-listed file whose sha256 and two rows verify. A session that dropped without `close` leaves no manifest and fails.
 
 ## Unit tests on the NASDAQ fixture venue
 

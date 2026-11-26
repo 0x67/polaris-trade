@@ -20,6 +20,12 @@ name = "datafeed"
 path = "src/main.rs"
 required-features = ["bin"]
 
+# Runs the built `datafeed` binary, so it exists only where the binary does.
+# `--no-default-features` builds (the embedded CI job, the pre-push hook) skip it.
+[[test]]
+name = "binary_deploy"
+required-features = ["bin"]
+
 # Per-stage latency and throughput bench over a local NASDAQ capture. It owns
 # its replay loop (no criterion) and reads the stage timers, which exist only
 # with the feature on.
