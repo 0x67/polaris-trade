@@ -253,6 +253,10 @@ fn backoff_waits_without_blocking_the_call() {
     let mut config = server.config(&[]);
     config.reconnect_attempts = 2;
     config.backoff_initial = Duration::from_millis(150);
+    // the reconnects meet a closed port. Windows retries a refused loopback
+    // SYN for about two seconds, so the connect budget, not the refusal, ends
+    // each attempt there, and both stay under the bound below.
+    config.connect_timeout = Duration::from_millis(60);
     let mut src = WebSocketSource::connect(config).expect("connect");
 
     let dropped_at = dropped_rx.recv().expect("server dropped the connection");
