@@ -70,17 +70,32 @@ fn run(mut cmd: Command) {
     );
 }
 
-/// The cdylib file and, on MSVC, the import library a C host links instead.
-/// Cargo builds them with this test's library dependency into `deps/`, the
-/// directory of this binary.
+/// The cdylib file and, on MSVC, the import library a C host links instead,
+/// which cargo builds with this test's library dependency. Older cargo puts
+/// them beside this binary in `deps/`. Newer cargo gives every unit its own
+/// `build/<package>/<hash>/out/`, so the newest library among this package's
+/// units is taken: the one this run built, or the last build of the same
+/// sources under another feature set.
 fn cdylib() -> (PathBuf, PathBuf) {
+    let name = format!("{}polaris_feed{}", consts::DLL_PREFIX, consts::DLL_SUFFIX);
     let exe = env::current_exe().expect("test binary path");
-    let deps = exe.parent().expect("test binary has a directory");
-    let dylib = deps.join(format!(
-        "{}polaris_feed{}",
-        consts::DLL_PREFIX,
-        consts::DLL_SUFFIX
-    ));
+    let out = exe.parent().expect("test binary has a directory");
+    let beside = out.join(&name);
+    let dylib = if beside.is_file() {
+        beside
+    } else {
+        let package = out
+            .parent()
+            .and_then(Path::parent)
+            .expect("test binary sits in build/<package>/<hash>/out");
+        let (_, newest) = fs::read_dir(package)
+            .expect("list the package's build units")
+            .filter_map(|unit| Some(unit.ok()?.path().join("out").join(&name)))
+            .filter_map(|lib| Some((fs::metadata(&lib).ok()?.modified().ok()?, lib)))
+            .max()
+            .unwrap_or_else(|| panic!("no {name} under {}", package.display()));
+        newest
+    };
     let link = if cfg!(target_env = "msvc") {
         dylib.with_extension("dll.lib")
     } else {
