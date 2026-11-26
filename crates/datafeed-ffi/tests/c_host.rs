@@ -1,5 +1,5 @@
 //! A C host built with the platform C compiler against `include/polaris_abi.h`
-//! and this crate's cdylib, which cargo builds next to this test binary.
+//! and this crate's cdylib, which cargo builds as this test's library dependency.
 //! Warnings are errors, under `-std=c99 -pedantic` on GCC and Clang and
 //! `/std:c11` on MSVC, which has no C99 mode.
 
