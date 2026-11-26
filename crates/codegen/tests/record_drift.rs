@@ -9,7 +9,7 @@
 use std::{thread::sleep, time::Duration};
 
 use proto_codegen::{
-    cli::{discover_record_schema_paths, repo_root},
+    cli::{discover_record_schema_paths, repo_root, schema_rel_path},
     record_emit::generate_records,
     record_schema::RecordSchema,
 };
@@ -45,8 +45,8 @@ fn committed_records_are_fresh() {
                 path.display()
             ),
         };
-        let rel = path.strip_prefix(&root).unwrap_or(path);
-        let files = match generate_records(&schema, &rel.to_string_lossy(), &second) {
+        let rel = schema_rel_path(&root, path);
+        let files = match generate_records(&schema, &rel, &second) {
             Ok(f) => f,
             Err(e) => panic!(
                 "stable record schema {} failed to generate: {e}",

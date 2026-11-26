@@ -48,6 +48,8 @@ Hand-written and never generated: `crates/common`, venue `lib.rs` (one `pub mod`
 
 Generated files carry a provenance header (schema path + sha256, no generator version so release bumps cannot drift the tree); drift tests enforce byte-exact regeneration on every `cargo nextest run`.
 
+[[crates/codegen/src/cli.rs#schema_rel_path]] writes the header's schema path with `/` on every host, so a Windows checkout regenerates the same bytes.
+
 Three layers: the `drift` integration test in `polaris-codegen` fails `cargo nextest run --workspace` on stale or missing output (missing is drift, so a layout mistake cannot pass as "not generated yet"), and lefthook pre-push and CI both run that suite; `cargo run -p polaris-codegen -- --check` repeats that comparison and also reports orphans, which the `drift` test does not check, and no hook or workflow runs it; rustfmt `ignore` entries keep nightly fmt off generated globs so determinism never depends on rustfmt version.
 
 Layout belongs to the caller: [[crates/codegen/src/emit.rs#generate]] and [[crates/codegen/src/emit.rs#owned_module_dir]] take the venue crate directory as an argument, and this repo's binary and drift test pass [[crates/codegen/src/cli.rs#venue_crate_dir]] (`crates/venues/<venue>`). A repo with another layout passes its own directory.
