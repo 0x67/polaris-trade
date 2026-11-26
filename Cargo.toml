@@ -106,3 +106,7 @@ unimplemented = "deny"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# release binaries build with the release settings above, fat LTO included
+[profile.dist]
+inherits = "release"

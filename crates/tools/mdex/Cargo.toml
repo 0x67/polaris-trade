@@ -40,3 +40,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 rstest = "0.26.1"
 # Reader tests write a synthetic stream to a temp file, then open it by path.
 tempfile = "3"
+
+# not shipped as a release binary
+[package.metadata.dist]
+dist = false
