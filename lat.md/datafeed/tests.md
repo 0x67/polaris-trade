@@ -115,6 +115,12 @@ These cases need a client built without `compressed`, because the mock writes pl
 
 `poll_returns_a_fault_after_the_records_routed_before_it` replays an MDC1 capture that opens the feed, lists a security and trades against a resting order, with its last row on stream 1. The first poll returns the four frames' records, the second the OHLCV bars that the faulting step flushed, the third `SourceError::UndeclaredStream`, and the fourth `Closed`. `sink_session_returns_the_fault_once_after_publishing_the_flush` replays the same capture through a `SinkSession`: the fault returns on the second poll with the flushed bars already in the sink, and `Closed` follows.
 
+## Host process state
+
+`tests/host_process.rs` is unix-only and holds two cases: one builds, polls and closes a replay `FeedSession`, the other runs a replay config through `app::run_config` with a never-set stop flag.
+
+Each reads the SIGINT and SIGTERM dispositions before and after and expects them unchanged, and expects no global `tracing` subscriber. A library that registered a handler or installed a subscriber, in the session or in `run_config`, fails it. CI runs it with `--no-default-features` in the `datafeed-embedded` job, where the `bin` feature and its crates are absent from the build.
+
 ## Unit tests on the NASDAQ fixture venue
 
 Unit tests under `src/` that need a venue run on the `NASDAQ` descriptor, or on a test-only descriptor built from it when they need a property NASDAQ lacks.

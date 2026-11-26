@@ -33,6 +33,19 @@ Add `--features observability` to compile in the per-stage timers and the
 metrics exporters. A config with an `observability` block fails at startup in a
 build without the feature.
 
+## Embedding the library
+
+The `bin` feature is on by default. It holds everything that touches process
+state: the SIGINT and SIGTERM handlers, the `tracing` subscriber and the
+metrics recorder and exporter. Only the binary uses it. A host that embeds the
+library builds with `default-features = false`, installs its own signals,
+subscriber and recorder, and passes its own stop flag to
+`FeedSessionBuilder::stop` or `app::run_config`.
+
+```bash
+cargo nextest run -p polaris-datafeed --no-default-features
+```
+
 ## Configuration
 
 `config.example.yaml` documents the venue, live/replay, container, loading,

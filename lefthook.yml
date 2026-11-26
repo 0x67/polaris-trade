@@ -89,3 +89,8 @@ pre-push:
       # A member built alone resolves to its defaults. Same checks as the CI
       # member-defaults job.
       run: cargo check -p polaris-venue-nasdaq && cargo check -p polaris-orderbook && cargo check -p polaris-pipeline
+
+    datafeed-embedded:
+      # polaris-datafeed without `bin`, as the CI datafeed-embedded job builds
+      # it: the commands above build it with `bin` on.
+      run: cargo clippy -p polaris-datafeed --all-targets --no-default-features -- -D warnings && cargo nextest run -p polaris-datafeed --no-default-features

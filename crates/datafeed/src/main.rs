@@ -1,10 +1,20 @@
 //! datafeed command-line entry point.
+//!
+//! Owns the process-global state the library leaves alone: the shutdown
+//! signal handlers and the logging and metrics installs.
 
-use std::{path::PathBuf, process::ExitCode, sync::Arc};
+mod signals;
+mod telemetry;
+
+use std::{
+    path::PathBuf,
+    process::ExitCode,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use datafeed::{
-    app::{CliOverrides, run},
-    shutdown,
+    FeedError,
+    app::{CliOverrides, load_config, run_config},
 };
 
 fn main() -> ExitCode {
@@ -21,14 +31,15 @@ fn main() -> ExitCode {
     };
     let overrides = CliOverrides::from_args(&args);
 
-    // Arm shutdown before the runner starts: a live capture must drain, close
+    // Arm shutdown before the session starts: a live capture must drain, close
     // writers, and write manifests on SIGINT/SIGTERM instead of truncating.
-    if let Err(err) = install_shutdown_signals() {
+    let stop = Arc::new(AtomicBool::new(false));
+    if let Err(err) = signals::install(&stop) {
         eprintln!("datafeed: cannot install signal handlers: {err}");
         return ExitCode::FAILURE;
     }
 
-    match run(PathBuf::from(path), overrides) {
+    match run(PathBuf::from(path), &overrides, stop) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("datafeed: {err}");
@@ -37,12 +48,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// Register a sync SIGINT + SIGTERM handler that sets the shared stop flag.
-/// `signal_hook::flag::register` is async-signal-safe: it only stores into the
-/// `Arc<AtomicBool>` the live loop polls.
-fn install_shutdown_signals() -> std::io::Result<()> {
-    let flag = shutdown::flag();
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(flag))?;
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(flag))?;
-    Ok(())
+fn run(path: PathBuf, overrides: &CliOverrides, stop: Arc<AtomicBool>) -> Result<(), FeedError> {
+    let config = load_config(&path, overrides)?;
+    // Held to the end of the run: dropping it stops the exporter.
+    let _telemetry = telemetry::install(config.observability.as_ref())?;
+    run_config(config, stop)
 }
