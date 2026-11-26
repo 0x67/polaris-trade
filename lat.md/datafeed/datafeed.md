@@ -8,4 +8,5 @@ The binary takes one config path and an optional `--ohlcv-resolutions` override.
 
 - [[session]]: config-driven venue and source selection, the live and replay source swap, the session hot loop and record routing, the pull-based feed session a host embeds, sinks, the restart and resume seam, and stage timers.
 - [[capture]]: the raw capture tap, the partitioned storage layout with its manifests, and the capture header reconcile on replay.
+- [[c-abi]]: the C ABI crate `polaris-datafeed-ffi` over the feed session, its statuses, record lifetime, panic profile and generated header.
 - [[tests]]: determinism and parity gates, the live path against a mock SoupBinTCP server, and the unit tests that use NASDAQ as their fixture venue.
