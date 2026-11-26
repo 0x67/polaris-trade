@@ -18,6 +18,7 @@ name = "datafeed"
 [[bin]]
 name = "datafeed"
 path = "src/main.rs"
+required-features = ["bin"]
 
 # Per-stage latency and throughput bench over a local NASDAQ capture. It owns
 # its replay loop (no criterion) and reads the stage timers, which exist only
@@ -34,7 +35,12 @@ name = "feed_session"
 harness = false
 
 [features]
-default = []
+default = ["bin"]
+# Everything that touches process-global state: the SIGINT and SIGTERM
+# handlers, the `tracing` subscriber and the metrics recorder install. Only the
+# binary tree references it. A host embedding the library turns it off and
+# keeps its own signals, subscriber and recorder.
+bin = ["dep:signal-hook", "dep:tracing-subscriber"]
 # Compile-time gate for the whole observability seam. Off by default: a normal
 # build links no observability crate and the per-stage timers are compiled out,
 # so the shipped binary is wire-identical to a build without this code. On, the
@@ -78,7 +84,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # Sync SIGINT/SIGTERM handler setting a shared stop flag. The live hot loop is
 # sync and only yields to tokio during connect, so a sync flag beats tokio::signal.
-signal-hook = "0.3"
+signal-hook = { version = "0.3", optional = true }
 # Capture manifest integrity hash (per-file sha256). Cold path, close-time only.
 sha2 = { workspace = true }
 # YAML config loader (maintained serde_yaml fork, same API). Config parse only,
@@ -92,12 +98,11 @@ tokio = { workspace = true, features = [
   "time",
   "io-util",
 ] }
-# Logging facade + fallback subscriber, both unconditional (NOT behind the
-# `observability` feature). Libraries this binary links emit `tracing` events;
-# the binary installs exactly one subscriber. The feature-off run path installs
-# the stderr fmt subscriber, so tracing-subscriber must always be present.
+# Logging facade, always present. The library emits `tracing` events; the
+# binary installs exactly one subscriber, so tracing-subscriber sits behind
+# `bin`.
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], optional = true }
 
 [dev-dependencies]
 md-pipeline = { workspace = true, features = ["testing"] }
@@ -111,3 +116,5 @@ sha2 = { workspace = true }
 zstd = { workspace = true }
 # per-stage percentiles in benches/nasdaq_pipeline
 hdrhistogram = "7.6.0"
+# reads the process SIGINT and SIGTERM dispositions in tests/host_process.rs
+libc = { workspace = true }

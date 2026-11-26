@@ -326,14 +326,19 @@ fn paced<S: IngestSource>(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::Write as _, path::Path};
+    use std::{
+        fs,
+        io::Write as _,
+        path::Path,
+        sync::{Arc, atomic::AtomicBool},
+    };
 
     use flate2::{Compression, write::GzEncoder};
     use md_pipeline::StreamId;
 
     use crate::{
         ConfigError, FeedError,
-        app::{CliOverrides, run},
+        app::{CliOverrides, load_config, run_config},
         config::{
             DatafeedConfig, LoadMode, PacingConfig, ReplayFormat, SinkKind, SourceConfig,
             TapConfig, default_resolution_tokens,
@@ -341,6 +346,11 @@ mod tests {
         source::SourceError,
         venue::NASDAQ,
     };
+
+    fn run(config_path: &Path) -> Result<(), FeedError> {
+        let config = load_config(config_path, &CliOverrides::default())?;
+        run_config(config, Arc::new(AtomicBool::new(false)))
+    }
 
     fn write_json(path: &Path, config: &DatafeedConfig) {
         let json = serde_json::to_string(config).expect("serialize test config");
@@ -427,8 +437,7 @@ mod tests {
             &replay_config(&replay_path, ReplayFormat::BinaryGz, LoadMode::Stream),
         );
 
-        let error = run(config_path.clone(), CliOverrides::default())
-            .expect_err("corrupt gzip tail must fail the run");
+        let error = run(&config_path).expect_err("corrupt gzip tail must fail the run");
         assert!(
             matches!(error, FeedError::Source(SourceError::RetainedIo { .. })),
             "got: {error}"
@@ -509,8 +518,8 @@ mod tests {
         config.taps.raw_dir = Some(raw_dir.clone());
         write_json(&config_path, &config);
 
-        let error = run(config_path.clone(), CliOverrides::default())
-            .expect_err("a row on an undeclared stream must fail the replay");
+        let error =
+            run(&config_path).expect_err("a row on an undeclared stream must fail the replay");
         assert!(
             matches!(
                 error,
@@ -554,8 +563,7 @@ mod tests {
             &replay_config(replay_path, ReplayFormat::Capture, LoadMode::Eager),
         );
 
-        let error = run(config_path.clone(), CliOverrides::default())
-            .expect_err("capture eager must be rejected");
+        let error = run(&config_path).expect_err("capture eager must be rejected");
         assert!(
             matches!(
                 error,
@@ -582,8 +590,7 @@ mod tests {
             &replay_config(&replay_path, ReplayFormat::Auto, LoadMode::Stream),
         );
 
-        run(config_path.clone(), CliOverrides::default())
-            .expect("auto-detected gzip replay reaches clean end");
+        run(&config_path).expect("auto-detected gzip replay reaches clean end");
 
         let _ = fs::remove_file(replay_path);
         let _ = fs::remove_file(config_path);

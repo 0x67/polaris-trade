@@ -1703,6 +1703,7 @@ dependencies = [
  "flate2",
  "hdrhistogram",
  "jiff",
+ "libc",
  "metrics",
  "observability",
  "observability-core",

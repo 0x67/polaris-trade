@@ -5,7 +5,7 @@
 //! pulls records with [`FeedSession::poll`] from its own loop, or builds a
 //! [`SinkSession`] that publishes into a sink of its own. The binary loads a
 //! config file and drives a [`SinkSession`] over its configured sink through
-//! [`app::run`]; `src/main.rs` only handles argv and exit status.
+//! [`app::run_config`]; the binary tree handles argv, signals and telemetry.
 
 #![cfg_attr(not(test), deny(clippy::print_stdout, clippy::print_stderr))]
 
@@ -14,7 +14,6 @@ pub mod config;
 pub mod error;
 pub mod restart;
 pub mod session;
-pub mod shutdown;
 pub mod sink;
 pub mod source;
 pub mod tap;

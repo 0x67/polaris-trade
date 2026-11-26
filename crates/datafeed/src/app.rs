@@ -2,8 +2,8 @@
 
 use std::{
     fs,
-    path::{Path, PathBuf},
-    sync::Arc,
+    path::Path,
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use md_pipeline::BundledTzdb;
@@ -51,21 +51,22 @@ fn apply_overrides(
     Ok(())
 }
 
-/// Load one deployment config, apply CLI overrides, and run it to completion.
-/// Live sessions reconnect internally and return once the shutdown flag is set.
+/// Load one deployment config and apply CLI overrides.
 ///
 /// # Errors
 ///
-/// Returns [`FeedError`] when the config cannot be read, parsed, or reconciled,
-/// or when the session ends on a fault.
-pub fn run(config_path: PathBuf, overrides: CliOverrides) -> Result<(), FeedError> {
-    let raw = fs::read_to_string(&config_path).map_err(|source| ConfigError::Read {
-        path: config_path.clone(),
+/// Returns [`FeedError`] when the config cannot be read, parsed, or reconciled.
+pub fn load_config(
+    config_path: &Path,
+    overrides: &CliOverrides,
+) -> Result<DatafeedConfig, FeedError> {
+    let raw = fs::read_to_string(config_path).map_err(|source| ConfigError::Read {
+        path: config_path.to_path_buf(),
         source,
     })?;
-    let mut config = parse_config(&config_path, &raw)?;
-    apply_overrides(&mut config, &overrides)?;
-    run_config(config)
+    let mut config = parse_config(config_path, &raw)?;
+    apply_overrides(&mut config, overrides)?;
+    Ok(config)
 }
 
 /// Decode a config body, picking the parser by file extension: `.json` is
@@ -86,39 +87,21 @@ fn parse_config(path: &Path, raw: &str) -> Result<DatafeedConfig, ConfigError> {
 
 /// Builds a [`crate::SinkSession`] over the configured sink (`Null` or `Collecting`)
 /// from a decoded config and polls it until its source ends. Only a live
-/// session watches [`crate::shutdown::flag`]; a replay runs to its end.
+/// session watches `stop`; a replay runs to its end. The caller owns the flag
+/// and whatever sets it, so the library installs no signal handler.
 ///
 /// # Errors
 ///
 /// Returns [`FeedError`] when the config is refused or the session ends on a
 /// fault. The session closes on every exit, finishing the capture tap; a
 /// fault wins over a close error, which is logged.
-pub fn run_config(config: DatafeedConfig) -> Result<(), FeedError> {
-    // Exporter background tasks (prometheus listener / otlp pusher) spawn on
-    // this runtime; enter it during init so they attach here and keep serving
-    // through the run. The guard drops ahead of the runtime.
-    let _obs: Option<(crate::obs::ObsGuard, tokio::runtime::Runtime)> = match &config.observability
-    {
-        Some(obs_cfg) => {
-            let runtime = tokio::runtime::Runtime::new().map_err(FeedError::Runtime)?;
-            let guard = {
-                let _enter = runtime.enter();
-                crate::obs::init(obs_cfg)?
-            };
-            Some((guard, runtime))
-        }
-        None => {
-            crate::obs::init_fallback_logging();
-            None
-        }
-    };
-
+pub fn run_config(config: DatafeedConfig, stop: Arc<AtomicBool>) -> Result<(), FeedError> {
     let venue = config.venue.name;
     let live = !matches!(config.source, SourceConfig::Replay { .. });
     let sink = wiring::build_sink(&config);
     let mut builder = FeedSessionBuilder::from(config);
     if live {
-        builder = builder.stop(Arc::clone(crate::shutdown::flag()));
+        builder = builder.stop(stop);
     }
     let mut session = builder.build_with_sink(sink)?;
 
@@ -550,7 +533,8 @@ source:
             observability: None,
         };
 
-        let err = run_config(config).expect_err("NASDAQ live must be rejected before dialing");
+        let err = run_config(config, Default::default())
+            .expect_err("NASDAQ live must be rejected before dialing");
         assert!(
             matches!(
                 err,
