@@ -4,7 +4,8 @@
  *
  * Usage: harness <config json> <output path>
  * Exit status: 0 when the poll loop ends on POLARIS_FEED_END and close
- * returns POLARIS_OK, 1 otherwise, 2 on a usage error. */
+ * returns POLARIS_OK, 1 otherwise (a loaded library of another ABI version
+ * included), 2 on a usage error. */
 #include <stdio.h>
 
 #include "polaris_abi.h"
@@ -43,6 +44,11 @@ int main(int argc, char **argv) {
     if (argc != 3) {
         fprintf(stderr, "usage: harness <config json> <output path>\n");
         return 2;
+    }
+    if (polaris_abi_version() != POLARIS_ABI_VERSION) {
+        fprintf(stderr, "libpolaris_feed has ABI version %lu, the header %lu\n",
+                (unsigned long)polaris_abi_version(), (unsigned long)POLARIS_ABI_VERSION);
+        return 1;
     }
     out = fopen(argv[2], "wb");
     if (out == NULL) {

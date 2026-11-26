@@ -1,15 +1,16 @@
 #![cfg_attr(not(test), deny(clippy::print_stdout, clippy::print_stderr))]
 #![warn(clippy::undocumented_unsafe_blocks)]
-//! C ABI over [`datafeed::FeedSession`]. A host opens a session from a JSON
+//! C ABI over [`datafeed::FeedSession`]. A host checks [`polaris_abi_version`]
+//! against the header it was compiled with, opens a session from a JSON
 //! config, polls stamped records into an array it owns, and closes the
 //! session. cbindgen generates `include/polaris_abi.h` from this file with
 //! `cbindgen.toml`, and `tests/header.rs` fails when the committed header
 //! differs from its output.
 //!
-//! Every entry point catches a Rust panic and returns [`POLARIS_ERR_PANIC`],
-//! which needs a library built with `panic = "unwind"`. The workspace
-//! `release` profile aborts on panic, so the C library is built with the
-//! `ffi` profile: release codegen, unwinding panics.
+//! The open, poll and close entry points catch a Rust panic and return
+//! [`POLARIS_ERR_PANIC`], which needs a library built with `panic = "unwind"`.
+//! The workspace `release` profile aborts on panic, so the C library is built
+//! with the `ffi` profile: release codegen, unwinding panics.
 
 use std::{
     ffi::{CStr, c_char},
@@ -20,7 +21,8 @@ use std::{
 use datafeed::{FeedError, FeedSession, FeedSessionBuilder, OwnedRecord, config::DatafeedConfig};
 
 /// Version of this ABI. It changes when an exported signature, a struct
-/// layout or the meaning of a status changes.
+/// layout or the meaning of a status changes. `polaris_abi_version` returns
+/// the version the loaded library was built with.
 pub const POLARIS_ABI_VERSION: u32 = 1;
 
 /// Success.
@@ -172,6 +174,15 @@ unsafe fn with_feed(feed: *mut PolarisFeed, body: impl FnOnce(&mut PolarisFeed) 
         feed.poisoned = true;
     }
     status
+}
+
+/// Returns the `POLARIS_ABI_VERSION` this library was built with. Call it
+/// before any other function and stop when it differs from the
+/// `POLARIS_ABI_VERSION` the host was compiled against: the library may then
+/// write records of another size or return statuses with other meanings.
+#[unsafe(no_mangle)]
+pub extern "C" fn polaris_abi_version() -> u32 {
+    POLARIS_ABI_VERSION
 }
 
 /// Opens a session from `config_json`: NUL-terminated UTF-8 JSON shaped like

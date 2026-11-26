@@ -8,7 +8,8 @@
 
 /*
  Version of this ABI. It changes when an exported signature, a struct
- layout or the meaning of a status changes.
+ layout or the meaning of a status changes. `polaris_abi_version` returns
+ the version the loaded library was built with.
  */
 #define POLARIS_ABI_VERSION 1
 
@@ -105,6 +106,14 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/*
+ Returns the `POLARIS_ABI_VERSION` this library was built with. Call it
+ before any other function and stop when it differs from the
+ `POLARIS_ABI_VERSION` the host was compiled against: the library may then
+ write records of another size or return statuses with other meanings.
+ */
+uint32_t polaris_abi_version(void);
 
 /*
  Opens a session from `config_json`: NUL-terminated UTF-8 JSON shaped like
