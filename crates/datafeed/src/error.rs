@@ -27,7 +27,8 @@ pub enum FeedError {
     /// Closing the capture tap failed after the session ended.
     #[error(transparent)]
     Tap(#[from] CaptureTapError),
-    /// The tokio runtime that hosts the exporters and the live connect did not start.
+    /// The tokio runtime for the exporters or the live connect, or the thread a
+    /// live dial runs on, did not start.
     #[error("tokio runtime: {0}")]
     Runtime(#[source] io::Error),
     /// The metrics and logging pipeline did not install.

@@ -1,7 +1,10 @@
 //! Live feed: dialing, the frame batches, and the reconnect wait.
 
 use std::{
+    io,
+    mem::ManuallyDrop,
     net::SocketAddr,
+    panic,
     sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
@@ -9,6 +12,7 @@ use std::{
 
 use client_soupbintcp::SoupBinClientConfig;
 use md_pipeline::{EgressSequencer, StreamId, SystemClock};
+use tokio::runtime::Runtime;
 use transport_socket::tokio::TcpStream;
 
 use crate::{
@@ -123,6 +127,46 @@ fn live_dial(source: &SourceConfig, venue: &VenueDescriptor) -> Option<LiveDial>
     }
 }
 
+/// The runtime that drives a live feed's connect and login. A host may poll
+/// and drop the session on a thread inside its own async runtime, where
+/// `Runtime::block_on` and a blocking runtime drop both panic, so a dial runs
+/// on a thread of its own and drop shuts the runtime down in the background.
+struct DialRuntime(ManuallyDrop<Runtime>);
+
+impl DialRuntime {
+    // The session reads the socket without yielding to the runtime once
+    // connected, so one worker driving the reactor is enough.
+    fn new() -> io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()?;
+        Ok(DialRuntime(ManuallyDrop::new(runtime)))
+    }
+
+    /// Runs `connect` to completion on a scoped thread outside any runtime
+    /// the caller is in. A panic inside `connect` resumes on the caller.
+    fn block_on<T: Send>(&self, connect: impl Future<Output = T> + Send) -> Result<T, FeedError> {
+        thread::scope(|scope| {
+            let dial = thread::Builder::new()
+                .name("datafeed-dial".into())
+                .spawn_scoped(scope, || self.0.block_on(connect))
+                .map_err(FeedError::Runtime)?;
+            Ok(dial
+                .join()
+                .unwrap_or_else(|payload| panic::resume_unwind(payload)))
+        })
+    }
+}
+
+impl Drop for DialRuntime {
+    fn drop(&mut self) {
+        // SAFETY: `drop` runs once, and nothing reads the field after it.
+        let runtime = unsafe { ManuallyDrop::take(&mut self.0) };
+        runtime.shutdown_background();
+    }
+}
+
 /// The connection a live feed reads, or the wait before its next dial.
 #[expect(
     clippy::large_enum_variant,
@@ -143,7 +187,7 @@ enum Link {
 /// `egress_seq` stays one monotonic sequence across them.
 pub(crate) struct LiveFeed {
     dial: LiveDial,
-    runtime: tokio::runtime::Runtime,
+    runtime: DialRuntime,
     seq: EgressSequencer<RecordQueue, SystemClock>,
     buffers: StepBuffers<LiveFrame>,
     link: Link,
@@ -169,13 +213,7 @@ impl LiveFeed {
             }
             .into());
         };
-        // Drives the connect and login handshakes; the session then reads the
-        // socket without yielding to the runtime, so one worker is enough.
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(FeedError::Runtime)?;
+        let runtime = DialRuntime::new().map_err(FeedError::Runtime)?;
         Ok(LiveFeed {
             dial,
             runtime,
@@ -260,7 +298,7 @@ impl LiveFeed {
                 .runtime
                 .block_on(source::connect_tcp_resuming(
                     *endpoint, soupbin, *stream, restart, stop,
-                ))?
+                ))??
                 .map(|(source, replay)| (Link::Single(source), replay)),
             LiveDial::Dual {
                 primary_endpoint,
@@ -276,7 +314,7 @@ impl LiveFeed {
                     soupbin,
                     restart,
                     stop,
-                ))?
+                ))??
                 .map(|(source, replay)| (Link::Dual(source), replay)),
         };
         let Some((link, replay)) = connected else {
@@ -393,6 +431,31 @@ mod tests {
             ),
             "got: {err}"
         );
+    }
+
+    // A host on `#[tokio::main]` polls and closes inside its own runtime, where
+    // `Runtime::block_on` and a blocking runtime drop both panic. The pre-set
+    // stop ends the dial once it runs on the session's runtime.
+    #[tokio::test]
+    async fn live_session_polls_and_closes_inside_a_host_runtime() {
+        use std::sync::Arc;
+
+        use crate::FeedSession;
+
+        let source = SourceConfig::Live {
+            endpoint: "127.0.0.1:1".parse().expect("loopback address"),
+            soupbin: Default::default(),
+        };
+        let mut session = FeedSession::builder(&NASDAQ_SOUPBIN, source)
+            .venue_id(1)
+            .stop(Arc::new(AtomicBool::new(true)))
+            .build()
+            .expect("a live session builds");
+        assert!(matches!(
+            session.poll(&mut Vec::new(), 1),
+            Err(FeedError::Closed)
+        ));
+        session.close().expect("close with no capture tap");
     }
 
     // Delay must stay bounded however long the venue is down: an uncapped

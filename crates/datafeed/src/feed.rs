@@ -92,17 +92,15 @@ enum Phase {
     Ending(Option<FeedError>),
 }
 
-/// One venue feed, live or replay, driven by its host one [`poll`] at a time.
-///
-/// Build one with [`FeedSession::builder`], poll until [`FeedError::Closed`],
-/// then [`close`] it to finish the capture tap; dropping it without `close`
+/// One venue feed, live or replay, built with [`FeedSession::builder`]. The
+/// host calls [`poll`](Self::poll) until [`FeedError::Closed`], then
+/// [`close`](Self::close) to finish the capture tap; a drop without `close`
 /// leaves the open capture file unfinished. A poll can block: a paced replay
-/// sleeps each frame's pacing delay, and a live dial waits for connect and
-/// login. Not `Send`: the adapter is a `Box<dyn DynAdapter>`, and replay
-/// shares its egress clock through an `Rc`.
-///
-/// [`poll`]: FeedSession::poll
-/// [`close`]: FeedSession::close
+/// sleeps its pacing delays, and a live dial waits for connect and login on a
+/// thread of its own. Polling, closing or dropping it inside an async runtime
+/// does not panic, though a blocking poll holds that runtime's thread. Not
+/// `Send`: the adapter is a `Box<dyn DynAdapter>`, and replay shares its
+/// egress clock through an `Rc`.
 pub struct FeedSession {
     config: DatafeedConfig,
     engine: Engine,
