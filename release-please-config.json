@@ -6,6 +6,8 @@
       "release-type": "simple",
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
+      "draft": true,
+      "force-tag-creation": true,
       "changelog-sections": [
         {
           "type": "feat",
