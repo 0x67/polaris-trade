@@ -36,7 +36,8 @@ pub enum FeedError {
     #[error("observability init: {0}")]
     Observability(#[from] observability::PipelineError),
     /// The source has ended and [`crate::FeedSession::poll`] has handed out
-    /// every record; every later poll returns this.
+    /// every record, or [`crate::SinkSession::poll`] has published it; every
+    /// later poll returns this.
     #[error("feed session closed")]
     Closed,
 }

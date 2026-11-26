@@ -1,4 +1,4 @@
-//! Config file loading and the binary's run over a [`FeedSession`].
+//! Config file loading and the binary's run over a [`crate::SinkSession`].
 
 use std::{
     fs,
@@ -6,14 +6,12 @@ use std::{
     sync::Arc,
 };
 
-use md_pipeline::{BundledTzdb, OutputSink};
+use md_pipeline::BundledTzdb;
 
 use crate::{
-    ConfigError, FeedError, FeedSession, FeedSessionBuilder,
+    ConfigError, FeedError, FeedSessionBuilder,
     config::{DatafeedConfig, ResolutionParseError, SourceConfig, resolve_resolutions},
     replay,
-    session::SessionError,
-    sink::AnySink,
     venue::VenueDescriptor,
     wiring,
 };
@@ -86,8 +84,8 @@ fn parse_config(path: &Path, raw: &str) -> Result<DatafeedConfig, ConfigError> {
     Ok(config)
 }
 
-/// Builds a [`FeedSession`] from a decoded config, polls it until its source
-/// ends, and publishes every record to the configured sink. Only a live
+/// Builds a [`crate::SinkSession`] over the configured sink (`Null` or `Collecting`)
+/// from a decoded config and polls it until its source ends. Only a live
 /// session watches [`crate::shutdown::flag`]; a replay runs to its end.
 ///
 /// # Errors
@@ -117,14 +115,20 @@ pub fn run_config(config: DatafeedConfig) -> Result<(), FeedError> {
 
     let venue = config.venue.name;
     let live = !matches!(config.source, SourceConfig::Replay { .. });
-    let mut sink = wiring::build_sink(&config);
+    let sink = wiring::build_sink(&config);
     let mut builder = FeedSessionBuilder::from(config);
     if live {
         builder = builder.stop(Arc::clone(crate::shutdown::flag()));
     }
-    let mut session = builder.build()?;
+    let mut session = builder.build_with_sink(sink)?;
 
-    let outcome = forward(&mut session, &mut sink);
+    let outcome = loop {
+        match session.poll() {
+            Ok(()) => {}
+            Err(FeedError::Closed) => break Ok(()),
+            Err(err) => break Err(err),
+        }
+    };
     let closed = session.close();
     match outcome {
         Err(fault) => {
@@ -134,23 +138,6 @@ pub fn run_config(config: DatafeedConfig) -> Result<(), FeedError> {
             Err(fault)
         }
         Ok(()) => closed,
-    }
-}
-
-/// Polls `session` until its source ends, publishing each record to `sink`.
-fn forward(session: &mut FeedSession, sink: &mut AnySink) -> Result<(), FeedError> {
-    let mut records = Vec::new();
-    loop {
-        records.clear();
-        match session.poll(&mut records, usize::MAX) {
-            Ok(_) => {}
-            Err(FeedError::Closed) => return Ok(()),
-            Err(err) => return Err(err),
-        }
-        for record in &records {
-            sink.publish(record.as_record_ref())
-                .map_err(SessionError::from)?;
-        }
     }
 }
 

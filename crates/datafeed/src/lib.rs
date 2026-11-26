@@ -2,9 +2,10 @@
 //! -> engine -> `EgressSequencer`, with a capture tap on the raw frames.
 //!
 //! A host builds a [`FeedSession`] in code with [`FeedSession::builder`] and
-//! pulls records with [`FeedSession::poll`] from its own loop. The binary
-//! loads a config file and drives the same session through [`app::run`];
-//! `src/main.rs` only handles argv and exit status.
+//! pulls records with [`FeedSession::poll`] from its own loop, or builds a
+//! [`SinkSession`] that publishes into a sink of its own. The binary loads a
+//! config file and drives a [`SinkSession`] over its configured sink through
+//! [`app::run`]; `src/main.rs` only handles argv and exit status.
 
 #![cfg_attr(not(test), deny(clippy::print_stdout, clippy::print_stderr))]
 
@@ -29,5 +30,5 @@ mod session_window;
 mod wiring;
 
 pub use error::{ConfigError, FeedError};
-pub use feed::{FeedSession, FeedSessionBuilder};
+pub use feed::{FeedSession, FeedSessionBuilder, SinkSession};
 pub use record::{MAX_RECORD_LEN, OwnedRecord};

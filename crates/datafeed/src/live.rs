@@ -11,7 +11,7 @@ use std::{
 };
 
 use client_soupbintcp::SoupBinClientConfig;
-use md_pipeline::{EgressSequencer, StreamId, SystemClock};
+use md_pipeline::{EgressSequencer, OutputSink, StreamId, SystemClock};
 use tokio::runtime::Runtime;
 use transport_socket::tokio::TcpStream;
 
@@ -19,7 +19,6 @@ use crate::{
     ConfigError, FeedError,
     config::{DatafeedConfig, SourceConfig},
     feed::{Engine, Progress, run_batch},
-    record::RecordQueue,
     session::{SessionState, StepBuffers},
     source::{self, DualLiveSource, LiveFrame, LiveSoupBinSource},
     venue::VenueDescriptor,
@@ -185,21 +184,22 @@ enum Link {
 /// redialed at its resume point each time it closes. The adapter, engine
 /// state, tap, and `EgressSequencer` outlive every connection, so
 /// `egress_seq` stays one monotonic sequence across them.
-pub(crate) struct LiveFeed {
+pub(crate) struct LiveFeed<S: OutputSink> {
     dial: LiveDial,
     runtime: DialRuntime,
-    seq: EgressSequencer<RecordQueue, SystemClock>,
+    seq: EgressSequencer<S, SystemClock>,
     buffers: StepBuffers<LiveFrame>,
     link: Link,
     pacer: ReconnectPacer,
 }
 
-impl LiveFeed {
-    /// Checks that `config` is a live run the venue can dial. [`live_dial`]
-    /// refuses any source and venue pairing with no dial. A set
-    /// `session_midnight_ns` is refused too: a live run has no end date, and
-    /// the session installs each trade date's anchor from an unset one.
-    pub(crate) fn new(config: &DatafeedConfig, queue: RecordQueue) -> Result<Self, FeedError> {
+impl<S: OutputSink> LiveFeed<S> {
+    /// Checks that `config` is a live run the venue can dial, publishing into
+    /// `sink`. [`live_dial`] refuses any source and venue pairing with no
+    /// dial. A set `session_midnight_ns` is refused too: a live run has no end
+    /// date, and the session installs each trade date's anchor from an unset
+    /// one.
+    pub(crate) fn new(config: &DatafeedConfig, sink: S) -> Result<Self, FeedError> {
         if config.session_midnight_ns != 0 {
             return Err(ConfigError::LiveAnchorSet {
                 session_midnight_ns: config.session_midnight_ns,
@@ -217,11 +217,15 @@ impl LiveFeed {
         Ok(LiveFeed {
             dial,
             runtime,
-            seq: EgressSequencer::new(queue, SystemClock),
+            seq: EgressSequencer::new(sink, SystemClock),
             buffers: StepBuffers::new(BATCH_SIZE),
             link: Link::Down { retry_at: None },
             pacer: ReconnectPacer::new(),
         })
+    }
+
+    pub(crate) fn sink(&self) -> &S {
+        self.seq.sink()
     }
 
     /// Takes one step: a dial, one bounded slice of the reconnect wait, or one
