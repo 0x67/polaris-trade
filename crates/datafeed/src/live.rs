@@ -433,9 +433,8 @@ mod tests {
         );
     }
 
-    // A host on `#[tokio::main]` polls and closes inside its own runtime, where
-    // `Runtime::block_on` and a blocking runtime drop both panic. The pre-set
-    // stop ends the dial once it runs on the session's runtime.
+    // `block_on` and a blocking runtime drop both panic inside a host's runtime;
+    // the pre-set stop ends the dial once it runs on the session's runtime.
     #[tokio::test]
     async fn live_session_polls_and_closes_inside_a_host_runtime() {
         use std::sync::Arc;
