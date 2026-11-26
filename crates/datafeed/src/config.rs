@@ -197,9 +197,10 @@ impl Default for TapConfig {
 
 /// Runtime observability wiring. Present turns the metrics gate on and picks a
 /// metrics exporter; absent (default) runs blind, so a normal deployment pays
-/// nothing. Only honored when the crate is built `--features observability`; a
-/// build without the feature but a config asking for it fails loudly at start
-/// rather than running blind. See `crate::obs`.
+/// nothing. Only the `datafeed` binary honors it, through its `telemetry`
+/// module, and only when built `--features observability`; there a config
+/// asking for it without the feature fails at start. [`crate::app::run_config`]
+/// ignores the block, so an embedding host installs its own recorder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservabilityConfig {
     /// `service.name` stamped on exported metrics.

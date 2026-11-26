@@ -88,7 +88,9 @@ fn parse_config(path: &Path, raw: &str) -> Result<DatafeedConfig, ConfigError> {
 /// Builds a [`crate::SinkSession`] over the configured sink (`Null` or `Collecting`)
 /// from a decoded config and polls it until its source ends. Only a live
 /// session watches `stop`; a replay runs to its end. The caller owns the flag
-/// and whatever sets it, so the library installs no signal handler.
+/// and whatever sets it, so the library installs no signal handler. It also
+/// ignores `config.observability`: the binary installs the recorder and
+/// exporter before calling it, and a host does the same for itself.
 ///
 /// # Errors
 ///
