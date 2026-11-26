@@ -36,6 +36,14 @@ pre-commit:
     lat-check:
       run: lat check
 
+    private-adapter-gate:
+      # no public file names the private venue repository's adapter crate or
+      # schema path. rg exits 1 on no match; [/] keeps AGENTS.md's copy of the
+      # pattern from matching itself. Same check as AGENTS.md post-task item 9.
+      run: |
+        rg -n 'proto[-_]idx|schemas/idx[/]' -g '*.rs' -g '*.toml' -g '*.md' -g '!specs/**' -g '!CHANGELOG.md' .
+        test $? -eq 1
+
 # ---------------------------------------------------------------------------
 # commit-msg: Conventional Commits gate. `convco` = pure-Rust linter.
 # ---------------------------------------------------------------------------
