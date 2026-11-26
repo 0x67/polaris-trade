@@ -109,9 +109,11 @@ These cases need a client built without `compressed`, because the mock writes pl
 
 ## Feed session from a host
 
-`tests/feed_session.rs` drives a `FeedSession` through the public API only, built with the builder and no config file.
+`tests/feed_session.rs` drives a `FeedSession` and a `SinkSession` through the public API only, built with the builder and no config file.
 
-`host_poll_receives_the_runner_records_then_closed` replays the order-book reference fixture and polls five records at a time. It compares each record's stream and bytes with what `session::run` publishes over the same frames under the binary's replay assembly; the first batch routes more than five records, so a record dropped past `max` fails it. Two more polls must return `Closed`. `poll_returns_a_fault_after_the_records_routed_before_it` replays an MDC1 capture whose third row is on stream 1 and expects the two `Control` records, then `SourceError::UndeclaredStream`, then `Closed`.
+`host_poll_receives_the_runner_records_then_closed` replays the order-book reference fixture and polls five records at a time into one `Vec` it never clears. It compares each record's stream and bytes with what `session::run` publishes over the same frames under the binary's replay assembly. The first batch routes more than five records, so a record dropped past `max` fails it, and a step that wrote over what the host's `Vec` already held fails it too. The last record must be an OHLCV bar, so the step that ends the source routes records and the held end is exercised. Two more polls must return `Closed`. `sink_session_publishes_the_runner_records_then_closed` runs the binary's path over the same fixture into a sink that keeps each record's bytes and expects the runner's records, then `Closed`.
+
+`poll_returns_a_fault_after_the_records_routed_before_it` replays an MDC1 capture that opens the feed, lists a security and trades against a resting order, with its last row on stream 1. The first poll returns the four frames' records, the second the OHLCV bars that the faulting step flushed, the third `SourceError::UndeclaredStream`, and the fourth `Closed`. `sink_session_returns_the_fault_once_after_publishing_the_flush` replays the same capture through a `SinkSession`: the fault returns on the second poll with the flushed bars already in the sink, and `Closed` follows.
 
 ## Unit tests on the NASDAQ fixture venue
 

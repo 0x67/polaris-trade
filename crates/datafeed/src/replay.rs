@@ -2,13 +2,12 @@
 
 use std::{fs, io::Read, path::Path, sync::atomic::AtomicBool};
 
-use md_pipeline::{EgressSequencer, IngestError, IngestFrame, IngestSource, StreamId};
+use md_pipeline::{EgressSequencer, IngestError, IngestFrame, IngestSource, OutputSink, StreamId};
 
 use crate::{
     ConfigError, FeedError,
     config::{DatafeedConfig, LoadMode, PacingConfig, PacingModeConfig, ReplayFormat},
     feed::{Engine, Progress, run_batch},
-    record::RecordQueue,
     session::StepBuffers,
     source::SourceError,
     venue::VenueDescriptor,
@@ -30,9 +29,9 @@ type Paced<S> = md_replay::PacedSource<S, md_replay::ThreadSleepPacer>;
 
 /// An opened replay: its source and step buffers, and the sequencer stamping
 /// egress from the replayed clock.
-pub(crate) struct ReplayFeed {
+pub(crate) struct ReplayFeed<S: OutputSink> {
     venue: &'static VenueDescriptor,
-    seq: EgressSequencer<RecordQueue, md_replay::SharedClock>,
+    seq: EgressSequencer<S, md_replay::SharedClock>,
     source: ReplaySource,
 }
 
@@ -53,14 +52,14 @@ enum ReplaySource {
     ),
 }
 
-impl ReplayFeed {
-    /// Opens the capture `input` names for `config`'s venue. A multi-stream
-    /// venue needs the capture container, the only one that tags rows with
-    /// their stream.
+impl<S: OutputSink> ReplayFeed<S> {
+    /// Opens the capture `input` names for `config`'s venue, publishing into
+    /// `sink`. A multi-stream venue needs the capture container, the only one
+    /// that tags rows with their stream.
     pub(crate) fn open(
         config: &DatafeedConfig,
         input: ReplayInput<'_>,
-        queue: RecordQueue,
+        sink: S,
     ) -> Result<Self, FeedError> {
         let container = resolve_container(input.format, input.path)?;
         if config.venue.streams.len() > 1 && container != md_replay::ContainerKind::Capture {
@@ -99,9 +98,13 @@ impl ReplayFeed {
         };
         Ok(ReplayFeed {
             venue: config.venue,
-            seq: EgressSequencer::new(queue, clock),
+            seq: EgressSequencer::new(sink, clock),
             source,
         })
+    }
+
+    pub(crate) fn sink(&self) -> &S {
+        self.seq.sink()
     }
 
     /// Replays one batch. Once the capture ends it fails on what the source

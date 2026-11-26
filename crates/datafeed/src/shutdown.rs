@@ -1,5 +1,5 @@
-//! Process shutdown flag. A sync SIGINT/SIGTERM handler in `main` sets it; a
-//! live [`crate::FeedSession`] checks it at batch boundaries and ends, and the
+//! Process shutdown flag. A sync SIGINT/SIGTERM handler in `main` sets it; the
+//! binary's live [`crate::SinkSession`] checks it at batch boundaries and ends, and the
 //! binary then closes the session, finishing the capture. A replay never
 //! watches it and runs to the end of its capture.
 

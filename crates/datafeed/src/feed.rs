@@ -1,17 +1,17 @@
-//! Pull-based feed session: a host builds a [`FeedSession`] in code and calls
-//! [`FeedSession::poll`] from its own loop to take normalized records.
+//! Pull-based feed sessions. A host builds a [`FeedSession`] in code and calls
+//! [`FeedSession::poll`] from its own loop to take normalized records; a
+//! [`SinkSession`] publishes them in place into an `OutputSink` it owns, as
+//! the binary does through [`crate::app::run_config`].
 //!
 //! Each poll advances the source by at most one batch through the same
-//! [`crate::session`] step the batch runner loops over, then hands back what
-//! the egress sequencer queued. The binary drives one through
-//! [`crate::app::run_config`].
+//! [`crate::session`] step the batch runner loops over.
 
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
-use md_pipeline::{DynAdapter, EgressClock, EgressSequencer, IngestSource};
+use md_pipeline::{DynAdapter, EgressClock, EgressSequencer, IngestSource, OutputSink};
 
 use crate::{
     FeedError, app,
@@ -45,15 +45,16 @@ pub(crate) enum Progress {
 /// Runs one [`session::step`]. When the source closes, or `stop` is set after
 /// the batch, it also flushes the open OHLCV bars, as [`session::run`] does on
 /// return, and reports that this source's run ended.
-pub(crate) fn run_batch<Src, C>(
+pub(crate) fn run_batch<Src, S, C>(
     source: &mut Src,
     buffers: &mut StepBuffers<Src::Frame>,
-    seq: &mut EgressSequencer<RecordQueue, C>,
+    seq: &mut EgressSequencer<S, C>,
     engine: &mut Engine,
     stop: &AtomicBool,
 ) -> Result<bool, SessionError>
 where
     Src: IngestSource,
+    S: OutputSink,
     C: EgressClock,
 {
     let step = session::step(
@@ -80,16 +81,81 @@ where
     clippy::large_enum_variant,
     reason = "one per session, built once; boxing only adds a deref per poll"
 )]
-enum Feed {
-    Replay(ReplayFeed),
-    Live(LiveFeed),
+enum Feed<S: OutputSink> {
+    Replay(ReplayFeed<S>),
+    Live(LiveFeed<S>),
 }
 
-/// Once the source has ended, queued records drain first, then the fault that
-/// ended it (if any) returns once, then [`FeedError::Closed`] on every poll.
-enum Phase {
-    Running,
-    Ending(Option<FeedError>),
+/// One venue feed, live or replay, that publishes every record in place into
+/// the `OutputSink` it owns, with no handoff copy; the binary runs one over
+/// its configured sink. Built with [`FeedSessionBuilder::build_with_sink`].
+/// The caller polls until [`FeedError::Closed`], then calls
+/// [`close`](Self::close). Blocking, async runtimes, a drop without `close`,
+/// and `Send` work as on a [`FeedSession`], which wraps one over its record
+/// queue.
+pub struct SinkSession<S: OutputSink> {
+    config: DatafeedConfig,
+    engine: Engine,
+    feed: Feed<S>,
+    stop: Arc<AtomicBool>,
+    ended: bool,
+}
+
+impl<S: OutputSink> SinkSession<S> {
+    /// Takes one step and publishes what it routes to the sink: a frame
+    /// batch, a live dial, or at most 50 ms of a reconnect wait. `Ok(())`
+    /// while the source runs, even when the step published nothing.
+    ///
+    /// # Errors
+    ///
+    /// Once the source ends, [`FeedError::Closed`], or the fault that ended
+    /// it (sink, tap, anchor, or source) once and then `Closed`. The records
+    /// routed before the end are already in the sink.
+    #[inline]
+    pub fn poll(&mut self) -> Result<(), FeedError> {
+        if self.ended {
+            return Err(FeedError::Closed);
+        }
+        let progress = match &mut self.feed {
+            Feed::Replay(feed) => feed.advance(&mut self.engine, &self.stop),
+            Feed::Live(feed) => feed.advance(&mut self.engine, &self.config, &self.stop),
+        };
+        match progress {
+            Ok(Progress::Running) => Ok(()),
+            Ok(Progress::Ended) => {
+                self.ended = true;
+                Err(FeedError::Closed)
+            }
+            Err(err) => {
+                self.ended = true;
+                Err(err)
+            }
+        }
+    }
+
+    /// Counters since the engine state was last built: session start, or a
+    /// live reconnect that replays from sequence 1.
+    pub fn stats(&self) -> &SessionStats {
+        self.engine.state.stats()
+    }
+
+    /// Finishes the capture tap: closes the open file and writes its manifest.
+    ///
+    /// # Errors
+    ///
+    /// [`FeedError::Tap`] when the capture cannot be finished.
+    pub fn close(self) -> Result<(), FeedError> {
+        tracing::info!(venue = self.config.venue.name, stats = ?self.stats(), "feed session closed");
+        self.engine.tap.finish()?;
+        Ok(())
+    }
+
+    fn sink(&self) -> &S {
+        match &self.feed {
+            Feed::Replay(feed) => feed.sink(),
+            Feed::Live(feed) => feed.sink(),
+        }
+    }
 }
 
 /// One venue feed, live or replay, built with [`FeedSession::builder`]. The
@@ -102,12 +168,10 @@ enum Phase {
 /// `Send`: the adapter is a `Box<dyn DynAdapter>`, and replay shares its
 /// egress clock through an `Rc`.
 pub struct FeedSession {
-    config: DatafeedConfig,
-    engine: Engine,
-    feed: Feed,
-    queue: RecordQueue,
-    stop: Arc<AtomicBool>,
-    phase: Phase,
+    session: SinkSession<RecordQueue>,
+    /// The end of the source, held back until the records routed before it
+    /// are handed out.
+    held: Option<FeedError>,
 }
 
 impl FeedSession {
@@ -138,32 +202,31 @@ impl FeedSession {
     /// [`FeedError::Closed`].
     #[inline]
     pub fn poll(&mut self, out: &mut Vec<OwnedRecord>, max: usize) -> Result<usize, FeedError> {
-        if self.queue.is_empty() && matches!(self.phase, Phase::Running) {
-            self.phase = match self.advance() {
-                Ok(Progress::Running) => Phase::Running,
-                Ok(Progress::Ended) => Phase::Ending(None),
-                Err(err) => Phase::Ending(Some(err)),
-            };
+        let queue = self.session.sink();
+        if !queue.is_empty() {
+            return Ok(queue.drain_into(out, max));
         }
-        if self.queue.is_empty()
-            && let Phase::Ending(fault) = &mut self.phase
-        {
-            return Err(fault.take().unwrap_or(FeedError::Closed));
+        if let Some(end) = self.held.take() {
+            return Err(end);
         }
-        Ok(self.queue.drain_into(out, max))
-    }
-
-    fn advance(&mut self) -> Result<Progress, FeedError> {
-        match &mut self.feed {
-            Feed::Replay(feed) => feed.advance(&mut self.engine, &self.stop),
-            Feed::Live(feed) => feed.advance(&mut self.engine, &self.config, &self.stop),
+        let start = out.len();
+        queue.lend(out);
+        let polled = self.session.poll();
+        let routed = self.session.sink().reclaim(out, start, max);
+        match polled {
+            Ok(()) => Ok(routed.min(max)),
+            Err(end) if routed > 0 => {
+                self.held = Some(end);
+                Ok(routed.min(max))
+            }
+            Err(end) => Err(end),
         }
     }
 
     /// Counters since the engine state was last built: session start, or a
     /// live reconnect that replays from sequence 1.
     pub fn stats(&self) -> &SessionStats {
-        self.engine.state.stats()
+        self.session.stats()
     }
 
     /// Finishes the capture tap: closes the open file and writes its manifest.
@@ -172,17 +235,17 @@ impl FeedSession {
     ///
     /// [`FeedError::Tap`] when the capture cannot be finished.
     pub fn close(self) -> Result<(), FeedError> {
-        tracing::info!(venue = self.config.venue.name, stats = ?self.stats(), "feed session closed");
-        self.engine.tap.finish()?;
-        Ok(())
+        self.session.close()
     }
 }
 
-/// Assembles a [`FeedSession`] in code, with no config file. It covers the
-/// session part of a [`DatafeedConfig`]: venue, source, venue id, session
-/// anchor, capture taps, and OHLCV resolutions. The file's `sink` and
-/// `observability` keys belong to the binary: a host takes records from
-/// [`FeedSession::poll`], and the library installs no metrics recorder.
+/// Assembles a [`FeedSession`] or [`SinkSession`] in code, with no config
+/// file. It covers the session part of a [`DatafeedConfig`]: venue, source,
+/// venue id, session anchor, capture taps, and OHLCV resolutions. The file's
+/// `sink` and `observability` keys belong to the binary: a host takes records
+/// from [`FeedSession::poll`] or passes its own sink to
+/// [`build_with_sink`](Self::build_with_sink), and the library installs no
+/// metrics recorder.
 #[must_use]
 pub struct FeedSessionBuilder {
     config: DatafeedConfig,
@@ -246,13 +309,24 @@ impl FeedSessionBuilder {
     /// open, and [`FeedError::Runtime`] when a live source's tokio runtime
     /// does not start.
     pub fn build(self) -> Result<FeedSession, FeedError> {
+        Ok(FeedSession {
+            session: self.build_with_sink(RecordQueue::default())?,
+            held: None,
+        })
+    }
+
+    /// As [`build`](Self::build), for a session that publishes into `sink`.
+    ///
+    /// # Errors
+    ///
+    /// As [`build`](Self::build).
+    pub fn build_with_sink<S: OutputSink>(self, sink: S) -> Result<SinkSession<S>, FeedError> {
         let FeedSessionBuilder { mut config, stop } = self;
         app::reconcile_replay_capture(&mut config)?;
         let tap = wiring::build_tap(&config)?;
-        let queue = RecordQueue::default();
         let feed = match &config.source {
             SourceConfig::Live { .. } | SourceConfig::LiveDual { .. } => {
-                Feed::Live(LiveFeed::new(&config, queue.clone())?)
+                Feed::Live(LiveFeed::new(&config, sink)?)
             }
             SourceConfig::Replay {
                 path,
@@ -270,7 +344,7 @@ impl FeedSessionBuilder {
                     load: *load,
                     pacing,
                 };
-                Feed::Replay(ReplayFeed::open(&config, input, queue.clone())?)
+                Feed::Replay(ReplayFeed::open(&config, input, sink)?)
             }
         };
         let engine = Engine {
@@ -279,13 +353,12 @@ impl FeedSessionBuilder {
             restart: RestartState::default(),
             tap,
         };
-        Ok(FeedSession {
+        Ok(SinkSession {
             config,
             engine,
             feed,
-            queue,
             stop,
-            phase: Phase::Running,
+            ended: false,
         })
     }
 }
