@@ -141,6 +141,14 @@ When the source ends, the remaining records drain first, the closing OHLCV flush
 
 The session's sink is a queue of these records that the egress sequencer and the session share through `Rc<RefCell<..>>`, since the sequencer lends its sink only by shared reference. A record is copied into the queue and again into the host's `Vec`, and a copy allocates only when a buffer grows. Over the NASDAQ reference fixture that is zero heap allocations per record, where a `Vec<u8>` per record costs one.
 
+### Host handoff bench
+
+`benches/feed_session.rs` times the binary's record path through `poll` against the batch runner, which publishes in place, in ns per published record.
+
+Both passes replay the vendored NASDAQ order-book reference fixture, repeated 1,000 times, from memory, unthrottled, batch 64, into a sink that only counts, with a fresh session per round. The session pass loops as [[crates/datafeed/src/app.rs#run_config]] does: poll with no cap, then publish each record through `as_record_ref`. Rounds alternate which pass goes first, every round checks that both passes published the same number of records, and the bench prints the median of each pass and of the paired differences. It has no baseline and no regression test.
+
+On `m4pro-macos` on AC power (2026-11-26) the medians were about 45 ns per record for the runner and 89 for the session, a paired difference of +44 ns. Across thirteen environment paddings from 0 to 8,192 bytes the difference stayed between +43.2 and +44.8 ns, so it does not follow the stack position.
+
 ## Pipeline stage observability
 
 Feature-gated (`observability`, default off) per-stage latency and throughput timers. A default build compiles them out; with the feature on the runtime gate still defaults off until a config turns it on, so a normal deployment is unaffected.
