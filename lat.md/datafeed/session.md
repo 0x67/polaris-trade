@@ -163,9 +163,19 @@ Stamped records leave the process through an `md_pipeline::OutputSink`; the sess
 
 [[crates/datafeed/src/sink.rs#NullSink]] drops everything (the binary's default when no downstream is wired); [[crates/datafeed/src/sink.rs#CollectingSink]] retains records for tests to assert against. [[crates/datafeed/src/config.rs#SinkKind]] selects between them from config (`Null` default, `Collecting` for capture-only/test mode); [[crates/datafeed/src/sink.rs#AnySink]] is the enum `wiring.rs` selects at assembly time. Real cross-process sinks (shared memory, network) land later and slot in behind the same `OutputSink` trait with no session change.
 
+## Typed library errors
+
+The run entry points ([[crates/datafeed/src/app.rs#run]] and `run_config`) return [[crates/datafeed/src/error.rs#FeedError]], so a host branches on the variant, not message text.
+
+Lower-level entry points return the inner error directly: `session::run` returns `SessionError`, the `source::connect_*` functions return `SourceError`, and `AnyTap::finish` returns `CaptureTapError`.
+
+`FeedError` is `#[non_exhaustive]`. `Config` wraps [[crates/datafeed/src/error.rs#ConfigError]] (unreadable or invalid config, a capture header that contradicts the config, a retired or misplaced tap setting, a venue and source pair with no dial). `Source` wraps [[crates/datafeed/src/source.rs#SourceError]] (live connect and SoupBinTCP faults, replay open, decode and retained io faults, a row on an undeclared stream). `Session` wraps `SessionError` from the hot loop, `Tap` is a capture close failure, `Runtime` is the tokio runtime failing to start, and `Observability` (feature `observability`) is the pipeline failing to install.
+
+Source chains survive except for the retained replay fault: `SourceError::RetainedIo` copies only the `kind` and `message` of the held `io::Error`, so its `source()` is `None`. `main.rs` prints the error with `Display`. Four messages carry a prefix the old boxed errors lacked: `read config <path>: `, `open replay <path>: `, `tokio runtime: ` and `observability init: `. `ConfigError::UnsupportedSource` names the source by its config `kind` tag (`live`, `live-dual`, `replay`) and never carries the source config, because the config holds SoupBinTCP credentials.
+
 ## Config-wiring rejections and replay failure surfacing
 
-`nasdaq` with `SourceConfig::Live` fails before dialing: [[crates/datafeed/src/live.rs#live_dial]] finds no dial for it and [[crates/datafeed/src/live.rs#run]] returns "unsupported venue/source combination", so it never runs against the wrong protocol.
+`nasdaq` with `SourceConfig::Live` fails before dialing: [[crates/datafeed/src/live.rs#live_dial]] finds no dial for it and [[crates/datafeed/src/live.rs#run]] returns `ConfigError::UnsupportedSource`, so it never runs against the wrong protocol.
 
 NASDAQ live is MoldUDP, with no SoupBinTCP session, and its descriptor sets `soupbin_live: false`, so it matches neither the `Live` arm (one SoupBinTCP stream) nor the `LiveDual` arm (two). For the `Binary`/`BinaryGz` replay formats, `replay.rs` checks `BinaryFileReplay::io_error()` on the source handed back by the session function (reached through `PacedSource::source()`); a retained io error (corrupt or truncated gzip mid-stream) fails the run instead of exiting success on a silently-truncated tail. `Capture` replay has no such check (`CaptureReplay` carries no retained-error state). It is the only container that tags rows with a stream, so [[crates/datafeed/src/replay.rs#DeclaredStreams]] wraps it: the first row on a stream the venue's descriptor does not declare closes the source, the rows before it still publish, and the run fails naming that stream. Without it a single-stream venue's capture holding a stream 1 row would replay to a clean end with those rows missing, since an adapter ignores an undeclared stream without counting it.
 

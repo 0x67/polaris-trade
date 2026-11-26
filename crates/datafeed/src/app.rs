@@ -8,7 +8,7 @@ use std::{
 use md_pipeline::BundledTzdb;
 
 use crate::{
-    AppResult,
+    ConfigError, FeedError,
     config::{DatafeedConfig, ResolutionParseError, SourceConfig, resolve_resolutions},
     live, replay,
     venue::VenueDescriptor,
@@ -52,8 +52,16 @@ fn apply_overrides(
 
 /// Load one deployment config, apply CLI overrides, and run it to completion.
 /// Live sessions reconnect internally and normally do not return.
-pub fn run(config_path: PathBuf, overrides: CliOverrides) -> AppResult<()> {
-    let raw = fs::read_to_string(&config_path)?;
+///
+/// # Errors
+///
+/// Returns [`FeedError`] when the config cannot be read, parsed, or reconciled,
+/// or when the session ends on a fault.
+pub fn run(config_path: PathBuf, overrides: CliOverrides) -> Result<(), FeedError> {
+    let raw = fs::read_to_string(&config_path).map_err(|source| ConfigError::Read {
+        path: config_path.clone(),
+        source,
+    })?;
     let mut config = parse_config(&config_path, &raw)?;
     apply_overrides(&mut config, &overrides)?;
     run_config(config)
@@ -62,7 +70,7 @@ pub fn run(config_path: PathBuf, overrides: CliOverrides) -> AppResult<()> {
 /// Decode a config body, picking the parser by file extension: `.json` is
 /// strict JSON, `.yaml`/`.yml` is YAML. Any other extension falls back to YAML,
 /// which is a JSON superset, so a bare or misnamed file still loads.
-fn parse_config(path: &Path, raw: &str) -> AppResult<DatafeedConfig> {
+fn parse_config(path: &Path, raw: &str) -> Result<DatafeedConfig, ConfigError> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -76,11 +84,16 @@ fn parse_config(path: &Path, raw: &str) -> AppResult<DatafeedConfig> {
 }
 
 /// Assemble and run an already-decoded deployment config.
-pub fn run_config(mut config: DatafeedConfig) -> AppResult<()> {
+///
+/// # Errors
+///
+/// Returns [`FeedError`] when the config contradicts its capture or the
+/// session ends on a fault.
+pub fn run_config(mut config: DatafeedConfig) -> Result<(), FeedError> {
     // On MDC1 replay the capture carries its own venue and date; reconcile the
     // config against that header before the tap stamps output with it.
     let capture_meta = match &config.source {
-        SourceConfig::Replay { path, .. } => replay::peek_capture_meta(path)?,
+        SourceConfig::Replay { path, .. } => replay::peek_capture_meta(path),
         _ => None,
     };
     if let Some((venue, date, feed)) = capture_meta {
@@ -96,7 +109,7 @@ pub fn run_config(mut config: DatafeedConfig) -> AppResult<()> {
 
     let tap = wiring::build_tap(&config)?;
     let sink = wiring::build_sink(&config);
-    let runtime = tokio::runtime::Runtime::new()?;
+    let runtime = tokio::runtime::Runtime::new().map_err(FeedError::Runtime)?;
 
     // Exporter background tasks (prometheus listener / otlp pusher) spawn on
     // this runtime; enter it during init so they attach here and keep serving
@@ -152,36 +165,35 @@ fn reconcile_capture_meta(
     venue: u16,
     date: u32,
     feed: u8,
-) -> AppResult<()> {
+) -> Result<(), ConfigError> {
     let capture_date = &mut config.taps.capture_date;
     if *capture_date == 0 {
         *capture_date = date;
     } else if *capture_date != date {
-        return Err(format!(
-            "config taps.capture_date {capture_date} disagrees with capture header {date}"
-        )
-        .into());
+        return Err(ConfigError::CaptureDateMismatch {
+            config: *capture_date,
+            header: date,
+        });
     }
 
     if config.venue_id == 0 {
         config.venue_id = venue;
     } else if config.venue_id != venue {
-        return Err(format!(
-            "config venue_id {} disagrees with capture header {venue}",
-            config.venue_id
-        )
-        .into());
+        return Err(ConfigError::VenueIdMismatch {
+            config: config.venue_id,
+            header: venue,
+        });
     }
 
     if feed != md_capture::FEED_UNSPECIFIED {
         let want = config.venue.feed_id;
         if feed != want {
-            return Err(format!(
-                "capture feed id {feed} disagrees with configured venue `{}-{}` (feed {want}): \
-                 wrong capture for this venue?",
-                config.venue.tag, config.venue.version
-            )
-            .into());
+            return Err(ConfigError::CaptureFeedMismatch {
+                header: feed,
+                expected: want,
+                venue_tag: config.venue.tag,
+                venue_version: config.venue.version,
+            });
         }
     }
 
@@ -209,17 +221,18 @@ fn reconcile_capture_meta(
 /// version's adapter drains ~0 records with no error). An off-layout name
 /// carries no feed token and runs unguarded. Per-file header check supersedes
 /// this once the container gains a feed byte.
-fn check_replay_path_feed(path: &Path, venue: &VenueDescriptor) -> AppResult<()> {
+fn check_replay_path_feed(path: &Path, venue: &VenueDescriptor) -> Result<(), ConfigError> {
     let Some((tag, ver)) = sniff_path_feed(path) else {
         return Ok(());
     };
     let (want_tag, want_ver) = (venue.tag, venue.version);
     if tag != want_tag || ver != want_ver {
-        return Err(format!(
-            "replay capture `{tag}_{ver}` disagrees with configured venue \
-             `{want_tag}_{want_ver}`: wrong capture for this venue?"
-        )
-        .into());
+        return Err(ConfigError::ReplayPathFeedMismatch {
+            found_tag: tag,
+            found_version: ver,
+            venue_tag: want_tag,
+            venue_version: want_ver,
+        });
     }
     Ok(())
 }
@@ -253,6 +266,7 @@ mod tests {
         reconcile_capture_meta, run_config,
     };
     use crate::{
+        ConfigError, FeedError,
         config::{DatafeedConfig, SinkKind, SourceConfig, TapConfig, default_resolution_tokens},
         venue::{NASDAQ, VenueDescriptor},
     };
@@ -293,14 +307,23 @@ mod tests {
         let mut bad_date = live_config();
         bad_date.taps.capture_date = 20260101;
         assert!(
-            reconcile_capture_meta(&mut bad_date, 7, 20260521, UNSPECIFIED).is_err(),
+            matches!(
+                reconcile_capture_meta(&mut bad_date, 7, 20260521, UNSPECIFIED),
+                Err(ConfigError::CaptureDateMismatch {
+                    config: 20260101,
+                    header: 20260521
+                })
+            ),
             "disagreeing date rejected"
         );
 
         let mut bad_venue = live_config();
         bad_venue.venue_id = 9;
         assert!(
-            reconcile_capture_meta(&mut bad_venue, 7, 20260521, UNSPECIFIED).is_err(),
+            matches!(
+                reconcile_capture_meta(&mut bad_venue, 7, 20260521, UNSPECIFIED),
+                Err(ConfigError::VenueIdMismatch { header: 7, .. })
+            ),
             "disagreeing venue rejected"
         );
     }
@@ -328,7 +351,10 @@ mod tests {
         };
         let err = reconcile_capture_meta(&mut next_feed(), 2, 20260521, NASDAQ.feed_id)
             .expect_err("a capture of the first feed under the second must be rejected");
-        assert!(err.to_string().contains("disagrees"), "got: {err}");
+        assert!(
+            matches!(err, ConfigError::CaptureFeedMismatch { .. }),
+            "got: {err}"
+        );
 
         reconcile_capture_meta(&mut next_feed(), 2, 20260521, NASDAQ_NEXT.feed_id)
             .expect("matching feed passes");
@@ -347,7 +373,10 @@ mod tests {
         check_replay_path_feed(raw_v5, &NASDAQ).expect("v5 capture under the v5 venue passes");
         let err = check_replay_path_feed(raw_v5, &NASDAQ_NEXT)
             .expect_err("v5 capture under the v6 venue must be rejected");
-        assert!(err.to_string().contains("disagrees"), "got: {err}");
+        assert!(
+            matches!(err, ConfigError::ReplayPathFeedMismatch { .. }),
+            "got: {err}"
+        );
 
         // Normalized leaf has a trailing schema field; first two fields still
         // decode to tag+ver, so the mismatch is still caught.
@@ -356,14 +385,20 @@ mod tests {
         );
         check_replay_path_feed(norm_v6, &NASDAQ_NEXT).expect("v6 leaf under the v6 venue passes");
         assert!(
-            check_replay_path_feed(norm_v6, &NASDAQ).is_err(),
+            matches!(
+                check_replay_path_feed(norm_v6, &NASDAQ),
+                Err(ConfigError::ReplayPathFeedMismatch { .. })
+            ),
             "v6 leaf under the v5 venue rejected"
         );
 
         // Same version under another venue tag: the tag alone must reject it.
         let other_tag = Path::new("/out/raw/other/v5/2026-05-21/other_v5_2026-05-21.mdc1.zst");
         assert!(
-            check_replay_path_feed(other_tag, &NASDAQ).is_err(),
+            matches!(
+                check_replay_path_feed(other_tag, &NASDAQ),
+                Err(ConfigError::ReplayPathFeedMismatch { .. })
+            ),
             "another venue's v5 leaf under nasdaq rejected"
         );
 
@@ -505,8 +540,10 @@ source:
 
         let err = run_config(config).expect_err("NASDAQ live must be rejected before dialing");
         assert!(
-            err.to_string()
-                .contains("unsupported venue/source combination"),
+            matches!(
+                err,
+                FeedError::Config(ConfigError::UnsupportedSource { .. })
+            ),
             "got: {err}"
         );
     }

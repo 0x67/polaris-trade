@@ -5,11 +5,12 @@ use std::{fs, io::Read, path::Path, sync::atomic::AtomicBool};
 use md_pipeline::{EgressSequencer, IngestError, IngestFrame, IngestSource, StreamId};
 
 use crate::{
-    AppResult,
+    ConfigError, FeedError,
     config::{DatafeedConfig, LoadMode, PacingConfig, PacingModeConfig, ReplayFormat},
     restart::RestartState,
     session::{self, SessionState, SessionStats},
     sink::AnySink,
+    source::SourceError,
     tap::{AnyTap, finish_capture},
 };
 
@@ -34,7 +35,7 @@ pub(crate) fn run(
     input: ReplayInput<'_>,
     sink: AnySink,
     mut tap: AnyTap,
-) -> AppResult<()> {
+) -> Result<(), FeedError> {
     let outcome = replay_session(config, input, sink, &mut tap);
     let stats = finish_capture(config.venue.name, tap, outcome)?;
     tracing::info!(venue = config.venue.name, ?stats, "replay session ended");
@@ -46,13 +47,13 @@ fn replay_session(
     input: ReplayInput<'_>,
     sink: AnySink,
     tap: &mut AnyTap,
-) -> AppResult<SessionStats> {
+) -> Result<SessionStats, FeedError> {
     let container = resolve_container(input.format, input.path)?;
     if config.venue.streams.len() > 1 && container != md_replay::ContainerKind::Capture {
-        return Err(format!(
-            "{} replay needs the capture container, got {container:?}",
-            config.venue.name
-        )
+        return Err(ConfigError::ReplayNeedsCapture {
+            venue: config.venue.name,
+            container,
+        }
         .into());
     }
     reject_unsupported_eager(container, input.load)?;
@@ -94,7 +95,8 @@ fn replay_session(
         // The only container that tags rows with a stream; binary and pcap
         // frames are all stream 0, which every venue declares.
         md_replay::ContainerKind::Capture => {
-            let source = md_replay::CaptureReplay::from_reader(fs::File::open(input.path)?)?;
+            let source = md_replay::CaptureReplay::from_reader(open_file(input.path)?)
+                .map_err(SourceError::from)?;
             let source = DeclaredStreams::new(paced(source, pacing, &clock), config.venue.streams);
             let (stats, source) = session::run(
                 source,
@@ -109,16 +111,18 @@ fn replay_session(
                 },
             )?;
             if let Some(stream) = source.undeclared {
-                return Err(format!(
-                    "{} capture has a row on stream {}, but the venue reads only {:?}",
-                    config.venue.name, stream.0, config.venue.streams
-                )
+                return Err(SourceError::UndeclaredStream {
+                    venue: config.venue.name,
+                    stream,
+                    declared: config.venue.streams,
+                }
                 .into());
             }
             stats
         }
         md_replay::ContainerKind::Pcap => {
-            let source = md_replay::PcapReplay::from_reader(fs::File::open(input.path)?)?;
+            let source = md_replay::PcapReplay::from_reader(open_file(input.path)?)
+                .map_err(SourceError::from)?;
             let source = paced(source, pacing, &clock);
             session::run(
                 source,
@@ -144,7 +148,7 @@ fn open_binary(
     base_ts: u64,
     step_ns: u64,
     load: LoadMode,
-) -> AppResult<md_replay::BinaryFileReplay> {
+) -> Result<md_replay::BinaryFileReplay, SourceError> {
     match (container, load) {
         (md_replay::ContainerKind::BinaryFramed, LoadMode::Stream) => Ok(
             md_replay::BinaryFileReplay::from_path(path, base_ts, step_ns)?,
@@ -158,13 +162,23 @@ fn open_binary(
         (md_replay::ContainerKind::Gzip, LoadMode::Eager) => Ok(
             md_replay::BinaryFileReplay::from_gz_eager(path, base_ts, step_ns)?,
         ),
-        _ => Err(format!("{container:?} is not a binary replay container").into()),
+        _ => Err(SourceError::NotBinaryContainer { container }),
     }
 }
 
-fn fail_on_retained_io_error(source: &md_replay::BinaryFileReplay) -> AppResult<()> {
+fn open_file(path: &Path) -> Result<fs::File, SourceError> {
+    fs::File::open(path).map_err(|source| SourceError::Open {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn fail_on_retained_io_error(source: &md_replay::BinaryFileReplay) -> Result<(), SourceError> {
     match source.io_error() {
-        Some(error) => Err(format!("replay io error: {error}").into()),
+        Some(error) => Err(SourceError::RetainedIo {
+            kind: error.kind(),
+            message: error.to_string(),
+        }),
         None => Ok(()),
     }
 }
@@ -173,34 +187,37 @@ fn fail_on_retained_io_error(source: &md_replay::BinaryFileReplay) -> AppResult<
 /// the zstd body, returning `None` when `path` is not a capture container (other
 /// replay formats carry no such header). Mirrors the header layout that
 /// `md_capture::read_header` parses (see polaris crates/formats/mdc).
-pub(crate) fn peek_capture_meta(path: &Path) -> AppResult<Option<(u16, u32, u8)>> {
+pub(crate) fn peek_capture_meta(path: &Path) -> Option<(u16, u32, u8)> {
     // Best effort: an unreadable path yields no meta here, and the real
     // container open downstream reports the io error (or the eager/format
     // rejection) with its own message.
     match fs::File::open(path) {
         Ok(file) => peek_capture_header(file),
-        Err(_) => Ok(None),
+        Err(_) => None,
     }
 }
 
 // header = "MDC1" magic + venue:u16 LE + date:u32 LE + schema:u16 LE + kind:u8
 // + feed:u8 + pad. A non-MDC1 or too-short file is not a capture, so returns
 // None rather than erroring; the real reader later rejects a genuinely bad one.
-fn peek_capture_header<R: Read>(mut reader: R) -> AppResult<Option<(u16, u32, u8)>> {
+fn peek_capture_header<R: Read>(mut reader: R) -> Option<(u16, u32, u8)> {
     let mut header = [0u8; 16];
     if reader.read_exact(&mut header).is_err() {
-        return Ok(None);
+        return None;
     }
     if &header[0..4] != b"MDC1" {
-        return Ok(None);
+        return None;
     }
     let venue = u16::from_le_bytes([header[4], header[5]]);
     let date = u32::from_le_bytes([header[6], header[7], header[8], header[9]]);
     let feed = header[13];
-    Ok(Some((venue, date, feed)))
+    Some((venue, date, feed))
 }
 
-fn resolve_container(format: ReplayFormat, path: &Path) -> AppResult<md_replay::ContainerKind> {
+fn resolve_container(
+    format: ReplayFormat,
+    path: &Path,
+) -> Result<md_replay::ContainerKind, SourceError> {
     Ok(match format {
         ReplayFormat::Binary => md_replay::ContainerKind::BinaryFramed,
         ReplayFormat::BinaryGz => md_replay::ContainerKind::Gzip,
@@ -210,14 +227,17 @@ fn resolve_container(format: ReplayFormat, path: &Path) -> AppResult<md_replay::
     })
 }
 
-fn reject_unsupported_eager(container: md_replay::ContainerKind, load: LoadMode) -> AppResult<()> {
+fn reject_unsupported_eager(
+    container: md_replay::ContainerKind,
+    load: LoadMode,
+) -> Result<(), ConfigError> {
     if load == LoadMode::Eager
         && matches!(
             container,
             md_replay::ContainerKind::Capture | md_replay::ContainerKind::Pcap
         )
     {
-        return Err(format!("eager load unsupported for {container:?} replay").into());
+        return Err(ConfigError::EagerLoadUnsupported { container });
     }
     Ok(())
 }
@@ -230,7 +250,7 @@ fn pacing_mode(mode: PacingModeConfig) -> md_replay::PacingMode {
     }
 }
 
-fn build_pacing(config: &PacingConfig) -> AppResult<md_replay::Pacing> {
+fn build_pacing(config: &PacingConfig) -> Result<md_replay::Pacing, ConfigError> {
     let default_mode = pacing_mode(config.default_mode);
     if config.windows.is_empty() {
         return Ok(md_replay::Pacing::Fixed(default_mode));
@@ -307,13 +327,16 @@ mod tests {
     use std::{fs, io::Write as _, path::Path};
 
     use flate2::{Compression, write::GzEncoder};
+    use md_pipeline::StreamId;
 
     use crate::{
+        ConfigError, FeedError,
         app::{CliOverrides, run},
         config::{
             DatafeedConfig, LoadMode, PacingConfig, ReplayFormat, SinkKind, SourceConfig,
             TapConfig, default_partition, default_resolution_tokens,
         },
+        source::SourceError,
         venue::NASDAQ,
     };
 
@@ -377,17 +400,14 @@ mod tests {
         let bytes = writer.finish().expect("finish capture writer");
 
         assert_eq!(
-            peek_capture_header(std::io::Cursor::new(bytes)).expect("peek ok"),
+            peek_capture_header(std::io::Cursor::new(bytes)),
             Some((7, 20260521, proto_nasdaq::FEED_NASDAQ)),
         );
         assert_eq!(
-            peek_capture_header(std::io::Cursor::new(b"not-a-capture".to_vec())).expect("peek ok"),
+            peek_capture_header(std::io::Cursor::new(b"not-a-capture".to_vec())),
             None,
         );
-        assert_eq!(
-            peek_capture_header(std::io::Cursor::new(Vec::new())).expect("peek ok"),
-            None,
-        );
+        assert_eq!(peek_capture_header(std::io::Cursor::new(Vec::new())), None,);
     }
 
     #[test]
@@ -408,7 +428,7 @@ mod tests {
         let error = run(config_path.clone(), CliOverrides::default())
             .expect_err("corrupt gzip tail must fail the run");
         assert!(
-            error.to_string().contains("replay io error"),
+            matches!(error, FeedError::Source(SourceError::RetainedIo { .. })),
             "got: {error}"
         );
 
@@ -490,7 +510,16 @@ mod tests {
 
         let error = run(config_path.clone(), CliOverrides::default())
             .expect_err("a row on an undeclared stream must fail the replay");
-        assert!(error.to_string().contains("on stream 1"), "got: {error}");
+        assert!(
+            matches!(
+                error,
+                FeedError::Source(SourceError::UndeclaredStream {
+                    stream: StreamId(1),
+                    ..
+                })
+            ),
+            "got: {error}"
+        );
 
         let day_dir = raw_dir.join("nasdaq/v5/2026-05-21");
         let leaf = "nasdaq_v5_2026-05-21.mdc1.zst";
@@ -527,7 +556,12 @@ mod tests {
         let error = run(config_path.clone(), CliOverrides::default())
             .expect_err("capture eager must be rejected");
         assert!(
-            error.to_string().contains("eager load unsupported"),
+            matches!(
+                error,
+                FeedError::Config(ConfigError::EagerLoadUnsupported {
+                    container: md_replay::ContainerKind::Capture
+                })
+            ),
             "got: {error}"
         );
         let _ = fs::remove_file(config_path);

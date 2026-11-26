@@ -4,6 +4,7 @@
 
 use std::{
     net::SocketAddr,
+    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -17,7 +18,7 @@ use transport_socket::{TcpConfig, tokio::TcpStream};
 
 use crate::restart::RestartState;
 
-/// Failure standing up a live source.
+/// Failure opening a live or replay source, or reading a replay to its end.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SourceError {
@@ -25,6 +26,36 @@ pub enum SourceError {
     Transport(#[from] TransportError),
     #[error("soupbin session: {0}")]
     SoupBin(#[from] SoupBinError),
+    #[error("open replay {}: {source}", path.display())]
+    Open {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error(transparent)]
+    Detect(#[from] md_replay::DetectError),
+    #[error(transparent)]
+    Binary(#[from] md_replay::BinaryFileError),
+    #[error(transparent)]
+    Capture(#[from] md_replay::CaptureError),
+    #[error(transparent)]
+    Pcap(#[from] md_replay::PcapError),
+    #[error("{container:?} is not a binary replay container")]
+    NotBinaryContainer { container: md_replay::ContainerKind },
+    /// The replay file stopped on an io error that was held until the session drained.
+    #[error("replay io error: {message}")]
+    RetainedIo {
+        kind: std::io::ErrorKind,
+        message: String,
+    },
+    #[error(
+        "{venue} capture has a row on stream {}, but the venue reads only {declared:?}",
+        stream.0
+    )]
+    UndeclaredStream {
+        venue: &'static str,
+        stream: StreamId,
+        declared: &'static [StreamId],
+    },
 }
 
 /// One frame pulled off a live SoupBinTCP session: owned payload bytes, the

@@ -38,7 +38,7 @@ mod imp {
     };
 
     use crate::{
-        AppResult,
+        FeedError,
         config::{MetricsExporterConfig, ObservabilityConfig},
     };
 
@@ -58,7 +58,7 @@ mod imp {
     /// one url and tag, cargo links one copy, the `observability::` re-export is
     /// the same static, and `init` arms what `StageTimer` reads. Entries that
     /// differ link two copies, and arming one leaves the other's timers dark.
-    pub fn init(cfg: &ObservabilityConfig) -> AppResult<ObsGuard> {
+    pub fn init(cfg: &ObservabilityConfig) -> Result<ObsGuard, FeedError> {
         let (otlp, exporter) = match &cfg.exporter {
             MetricsExporterConfig::Prometheus { bind } => {
                 (None, MetricsExporter::Prometheus { bind: *bind })
@@ -133,7 +133,7 @@ mod imp {
 
 #[cfg(not(feature = "observability"))]
 mod imp {
-    use crate::{AppResult, config::ObservabilityConfig};
+    use crate::{ConfigError, FeedError, config::ObservabilityConfig};
 
     /// Zero-sized guard when observability is compiled out.
     pub struct ObsGuard;
@@ -143,12 +143,8 @@ mod imp {
 
     /// A config asking for observability without the feature is a hard error, so
     /// a deployment never silently runs blind against its own request.
-    pub fn init(_cfg: &ObservabilityConfig) -> AppResult<ObsGuard> {
-        Err(
-            "config requests observability but the crate was built without the \
-             `observability` feature"
-                .into(),
-        )
+    pub fn init(_cfg: &ObservabilityConfig) -> Result<ObsGuard, FeedError> {
+        Err(ConfigError::ObservabilityUnavailable.into())
     }
 
     /// Install a plain stderr `fmt` subscriber for a run with no observability

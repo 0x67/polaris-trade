@@ -115,7 +115,7 @@ Unit tests under `src/` that need a venue run on the `NASDAQ` descriptor, or on 
 - `app.rs`: `NASDAQ_NEXT` (same venue id, version `v6`, the next feed id) gives the reconcile and the path-name guard a second feed to reject, and `FIXED_UTC9` (`RollModel::DailyFixed`, 9 h offset) gives the session-midnight derivation a fixed-offset venue.
 - `live.rs`: `NASDAQ_SOUPBIN` sets `soupbin_live: true`, so `live_dial` returns a dial and `live_run_refuses_a_set_session_anchor` reaches the anchor check instead of the unsupported-source refusal.
 - `wiring.rs`: `build_tap_stamps_venue_feed_into_header` configures a descriptor whose feed id is `FEED_NASDAQ + 1` and reads that id back from the header, so a tap that stamped a fixed id fails. Its frame at 00:00 UTC belongs to the previous New York date, which the expected dir name shows.
-- `replay.rs`: `peek_capture_meta_reads_header_venue_date_and_feed` expects `FEED_NASDAQ`. `capture_row_on_undeclared_stream_fails_replay` writes three system events with the third on stream 1 and expects an error naming that stream, the two rows before it captured, and a manifest entry of 2 records.
+- `replay.rs`: `peek_capture_meta_reads_header_venue_date_and_feed` expects `FEED_NASDAQ`. `capture_row_on_undeclared_stream_fails_replay` writes three system events with the third on stream 1 and expects `SourceError::UndeclaredStream` naming that stream, the two rows before it captured, and a manifest entry of 2 records.
 - `config.rs`: `venue_names_resolve_to_on_disk_identity` pins `("nasdaq", "v5", 3)` and rejects an unknown name.
 - `session/tests.rs`: frames come from the file's NASDAQ add and replace builders, capture leaves sit under `nasdaq/v5/`, and the anchor roll cases use New York anchors resolved from the descriptor.
 

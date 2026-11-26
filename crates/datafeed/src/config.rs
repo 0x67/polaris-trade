@@ -119,6 +119,17 @@ pub enum SourceConfig {
     },
 }
 
+impl SourceConfig {
+    /// The `kind` tag this variant carries in config files.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Live { .. } => "live",
+            Self::LiveDual { .. } => "live-dual",
+            Self::Replay { .. } => "replay",
+        }
+    }
+}
+
 fn default_step_ns() -> u64 {
     1
 }

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AppResult,
+    FeedError,
     session_window::{OpenSession, add_days, days_from_civil, resolve_session},
     venue::VenueDescriptor,
     wiring::{capture_dir, capture_filename, window_label},
@@ -455,7 +455,11 @@ impl AnyTap {
 /// fault (`Err`) alike, so a truncated tail never escapes. The session fault
 /// propagates ahead of any finish error; a finish error on the fault path is
 /// logged, not dropped silently.
-pub(crate) fn finish_capture<T>(venue: &str, tap: AnyTap, outcome: AppResult<T>) -> AppResult<T> {
+pub(crate) fn finish_capture<T>(
+    venue: &str,
+    tap: AnyTap,
+    outcome: Result<T, FeedError>,
+) -> Result<T, FeedError> {
     let finished = tap.finish();
     match outcome {
         Err(session_err) => {
