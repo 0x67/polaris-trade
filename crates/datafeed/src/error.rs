@@ -8,10 +8,7 @@ use std::{io, path::PathBuf};
 use md_replay::{ContainerKind, PacingScheduleError};
 
 use crate::{
-    config::{ResolutionParseError, SourceConfig},
-    session::SessionError,
-    source::SourceError,
-    tap::CaptureTapError,
+    config::ResolutionParseError, session::SessionError, source::SourceError, tap::CaptureTapError,
 };
 
 /// Failure of a feed run, from config load to session end.
@@ -95,10 +92,10 @@ pub enum ConfigError {
          live installs each trade date's anchor from frame receive time"
     )]
     LiveAnchorSet { session_midnight_ns: u64 },
-    #[error("unsupported venue/source combination: {venue:?} / {config_source:?}")]
+    #[error("unsupported venue/source combination: {venue:?} / {source_kind}")]
     UnsupportedSource {
         venue: &'static str,
-        config_source: Box<SourceConfig>,
+        source_kind: &'static str,
     },
     #[error("taps.normalized_dir was removed with normalized capture; use taps.raw_dir")]
     RetiredNormalizedDir,

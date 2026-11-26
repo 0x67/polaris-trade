@@ -189,7 +189,7 @@ pub(crate) fn run(
         ),
         None => Err(ConfigError::UnsupportedSource {
             venue: config.venue.name,
-            config_source: Box::new(config.source.clone()),
+            source_kind: config.source.kind(),
         }
         .into()),
     }

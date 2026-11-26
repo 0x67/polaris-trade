@@ -263,19 +263,14 @@ mod tests {
             load: Default::default(),
             pacing: Default::default(),
         };
-        for config in [live, replay] {
-            let err = match build_tap(&config) {
-                Ok(_) => panic!("{:?} must be rejected", config.source),
-                Err(e) => e,
-            };
-            assert!(
-                matches!(
-                    err,
-                    ConfigError::ReplayTapDateUnset | ConfigError::LiveTapDateSet { .. }
-                ),
-                "got: {err}"
-            );
-        }
+        assert!(matches!(
+            build_tap(&live).err(),
+            Some(ConfigError::LiveTapDateSet { date: 20260521 })
+        ));
+        assert!(matches!(
+            build_tap(&replay).err(),
+            Some(ConfigError::ReplayTapDateUnset)
+        ));
     }
 
     // The producer path: build_tap stamps the configured venue's feed id into
