@@ -34,6 +34,10 @@ pub enum FeedError {
     #[cfg(feature = "observability")]
     #[error("observability init: {0}")]
     Observability(#[from] observability::PipelineError),
+    /// The source has ended and [`crate::FeedSession::poll`] has handed out
+    /// every record; every later poll returns this.
+    #[error("feed session closed")]
+    Closed,
 }
 
 impl From<ResolutionParseError> for FeedError {

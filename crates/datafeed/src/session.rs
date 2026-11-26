@@ -186,6 +186,11 @@ impl SessionState {
         }
         Ok(state)
     }
+
+    /// Counters accumulated since this state was built.
+    pub fn stats(&self) -> &SessionStats {
+        &self.engines.stats
+    }
 }
 
 impl Default for SessionState {
@@ -221,6 +226,8 @@ macro_rules! impl_record_mut {
                 &mut self.hdr
             }
         }
+        // `OwnedRecord` stores any published record inline.
+        const _: () = assert!(size_of::<$t>() <= crate::record::MAX_RECORD_LEN);
     };
 }
 

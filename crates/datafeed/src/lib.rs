@@ -1,8 +1,10 @@
-//! Market-data feed library. Config-driven wiring: venue session -> client
-//! (SoupBinTCP) -> adapter -> engine -> `EgressSequencer` -> sinks, with
-//! capture taps at the raw and normalized boundaries. `src/main.rs` only
-//! handles argv and exit status; `app`, `live`, `replay`, and `wiring` own the
-//! deployment assembly.
+//! Market-data feed library: venue session -> client (SoupBinTCP) -> adapter
+//! -> engine -> `EgressSequencer`, with a capture tap on the raw frames.
+//!
+//! A host builds a [`FeedSession`] in code with [`FeedSession::builder`] and
+//! pulls records with [`FeedSession::poll`] from its own loop. The binary
+//! loads a config file and drives the same session through [`app::run`];
+//! `src/main.rs` only handles argv and exit status.
 
 #![cfg_attr(not(test), deny(clippy::print_stdout, clippy::print_stderr))]
 
@@ -18,10 +20,14 @@ pub mod tap;
 pub mod venue;
 
 mod anchor_roll;
+mod feed;
 mod live;
 mod obs;
+mod record;
 mod replay;
 mod session_window;
 mod wiring;
 
 pub use error::{ConfigError, FeedError};
+pub use feed::{FeedSession, FeedSessionBuilder};
+pub use record::{MAX_RECORD_LEN, OwnedRecord};

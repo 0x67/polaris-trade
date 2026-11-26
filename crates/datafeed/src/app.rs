@@ -1,16 +1,19 @@
-//! Config loading and top-level venue/source dispatch.
+//! Config file loading and the binary's run over a [`FeedSession`].
 
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use md_pipeline::BundledTzdb;
+use md_pipeline::{BundledTzdb, OutputSink};
 
 use crate::{
-    ConfigError, FeedError,
+    ConfigError, FeedError, FeedSession, FeedSessionBuilder,
     config::{DatafeedConfig, ResolutionParseError, SourceConfig, resolve_resolutions},
-    live, replay,
+    replay,
+    session::SessionError,
+    sink::AnySink,
     venue::VenueDescriptor,
     wiring,
 };
@@ -51,7 +54,7 @@ fn apply_overrides(
 }
 
 /// Load one deployment config, apply CLI overrides, and run it to completion.
-/// Live sessions reconnect internally and normally do not return.
+/// Live sessions reconnect internally and return once the shutdown flag is set.
 ///
 /// # Errors
 ///
@@ -83,21 +86,84 @@ fn parse_config(path: &Path, raw: &str) -> Result<DatafeedConfig, ConfigError> {
     Ok(config)
 }
 
-/// Assemble and run an already-decoded deployment config.
+/// Builds a [`FeedSession`] from a decoded config, polls it until its source
+/// ends, and publishes every record to the configured sink. Only a live
+/// session watches [`crate::shutdown::flag`]; a replay runs to its end.
 ///
 /// # Errors
 ///
-/// Returns [`FeedError`] when the config contradicts its capture or the
-/// session ends on a fault.
-pub fn run_config(mut config: DatafeedConfig) -> Result<(), FeedError> {
-    // On MDC1 replay the capture carries its own venue and date; reconcile the
-    // config against that header before the tap stamps output with it.
+/// Returns [`FeedError`] when the config is refused or the session ends on a
+/// fault. The session closes on every exit, finishing the capture tap; a
+/// fault wins over a close error, which is logged.
+pub fn run_config(config: DatafeedConfig) -> Result<(), FeedError> {
+    // Exporter background tasks (prometheus listener / otlp pusher) spawn on
+    // this runtime; enter it during init so they attach here and keep serving
+    // through the run. The guard drops ahead of the runtime.
+    let _obs: Option<(crate::obs::ObsGuard, tokio::runtime::Runtime)> = match &config.observability
+    {
+        Some(obs_cfg) => {
+            let runtime = tokio::runtime::Runtime::new().map_err(FeedError::Runtime)?;
+            let guard = {
+                let _enter = runtime.enter();
+                crate::obs::init(obs_cfg)?
+            };
+            Some((guard, runtime))
+        }
+        None => {
+            crate::obs::init_fallback_logging();
+            None
+        }
+    };
+
+    let venue = config.venue.name;
+    let live = !matches!(config.source, SourceConfig::Replay { .. });
+    let mut sink = wiring::build_sink(&config);
+    let mut builder = FeedSessionBuilder::from(config);
+    if live {
+        builder = builder.stop(Arc::clone(crate::shutdown::flag()));
+    }
+    let mut session = builder.build()?;
+
+    let outcome = forward(&mut session, &mut sink);
+    let closed = session.close();
+    match outcome {
+        Err(fault) => {
+            if let Err(close_err) = closed {
+                tracing::error!(venue, %close_err, "capture finish failed after session fault");
+            }
+            Err(fault)
+        }
+        Ok(()) => closed,
+    }
+}
+
+/// Polls `session` until its source ends, publishing each record to `sink`.
+fn forward(session: &mut FeedSession, sink: &mut AnySink) -> Result<(), FeedError> {
+    let mut records = Vec::new();
+    loop {
+        records.clear();
+        match session.poll(&mut records, usize::MAX) {
+            Ok(_) => {}
+            Err(FeedError::Closed) => return Ok(()),
+            Err(err) => return Err(err),
+        }
+        for record in &records {
+            sink.publish(record.as_record_ref())
+                .map_err(SessionError::from)?;
+        }
+    }
+}
+
+/// On MDC1 replay the capture carries its own venue, date, and feed; reconcile
+/// the config against that header before the tap stamps output with it. Any
+/// other source or container is left as it is.
+pub(crate) fn reconcile_replay_capture(config: &mut DatafeedConfig) -> Result<(), ConfigError> {
     let capture_meta = match &config.source {
         SourceConfig::Replay { path, .. } => replay::peek_capture_meta(path),
         _ => None,
     };
     if let Some((venue, date, feed)) = capture_meta {
-        reconcile_capture_meta(&mut config, venue, date, feed)?;
+        reconcile_capture_meta(config, venue, date, feed)?;
         // header feed is authoritative when set; a legacy (0) capture has none,
         // so it falls back to the best-effort filename check.
         if feed == md_capture::FEED_UNSPECIFIED
@@ -106,48 +172,7 @@ pub fn run_config(mut config: DatafeedConfig) -> Result<(), FeedError> {
             check_replay_path_feed(path, config.venue)?;
         }
     }
-
-    let tap = wiring::build_tap(&config)?;
-    let sink = wiring::build_sink(&config);
-    let runtime = tokio::runtime::Runtime::new().map_err(FeedError::Runtime)?;
-
-    // Exporter background tasks (prometheus listener / otlp pusher) spawn on
-    // this runtime; enter it during init so they attach here and keep serving
-    // through a sync replay run on the worker pool. Guard lives to run end.
-    let _obs: Option<crate::obs::ObsGuard> = match &config.observability {
-        Some(obs_cfg) => {
-            let _enter = runtime.enter();
-            Some(crate::obs::init(obs_cfg)?)
-        }
-        None => {
-            crate::obs::init_fallback_logging();
-            None
-        }
-    };
-
-    match &config.source {
-        SourceConfig::Live { .. } | SourceConfig::LiveDual { .. } => {
-            live::run(&runtime, &config, sink, tap, crate::shutdown::flag())
-        }
-        SourceConfig::Replay {
-            path,
-            format,
-            base_ts,
-            step_ns,
-            load,
-            pacing,
-        } => {
-            let input = replay::ReplayInput {
-                path,
-                format: *format,
-                base_ts: *base_ts,
-                step_ns: *step_ns,
-                load: *load,
-                pacing,
-            };
-            replay::run(&config, input, sink, tap)
-        }
-    }
+    Ok(())
 }
 
 /// Reconcile config against a capture container's own header on MDC1 replay: an
