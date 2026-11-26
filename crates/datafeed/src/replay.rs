@@ -333,7 +333,7 @@ mod tests {
         app::{CliOverrides, run},
         config::{
             DatafeedConfig, LoadMode, PacingConfig, ReplayFormat, SinkKind, SourceConfig,
-            TapConfig, default_partition, default_resolution_tokens,
+            TapConfig, default_resolution_tokens,
         },
         source::SourceError,
         venue::NASDAQ,
@@ -504,7 +504,6 @@ mod tests {
         let config_path = std::env::temp_dir().join("datafeed_undeclared_stream.json");
         let mut config = replay_config(&replay_path, ReplayFormat::Capture, LoadMode::Stream);
         config.taps.raw_dir = Some(raw_dir.clone());
-        config.taps.partition = default_partition();
         write_json(&config_path, &config);
 
         let error = run(config_path.clone(), CliOverrides::default())

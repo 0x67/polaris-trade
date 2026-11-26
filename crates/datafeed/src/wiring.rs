@@ -131,10 +131,7 @@ mod tests {
     };
     use crate::{
         ConfigError,
-        config::{
-            DatafeedConfig, SinkKind, SourceConfig, TapConfig, default_partition,
-            default_resolution_tokens,
-        },
+        config::{DatafeedConfig, SinkKind, SourceConfig, TapConfig, default_resolution_tokens},
         tap::AnyTap,
         venue::{NASDAQ, VenueDescriptor},
     };
@@ -206,8 +203,7 @@ mod tests {
         TapConfig {
             normalized_dir,
             raw_dir,
-            capture_date: 0,
-            partition: default_partition(),
+            ..TapConfig::default()
         }
     }
 
