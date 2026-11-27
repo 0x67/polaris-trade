@@ -21,7 +21,8 @@ path = "src/main.rs"
 required-features = ["bin"]
 
 # Runs the built `datafeed` binary, so it exists only where the binary does.
-# `--no-default-features` builds (the embedded CI job, the pre-push hook) skip it.
+# `--no-default-features` builds (the embedded CI job and the `datafeed-embedded`
+# pre-push command) skip it; the workspace pre-push `nextest` runs it.
 [[test]]
 name = "binary_deploy"
 required-features = ["bin"]
@@ -122,5 +123,6 @@ sha2 = { workspace = true }
 zstd = { workspace = true }
 # per-stage percentiles in benches/nasdaq_pipeline
 hdrhistogram = "7.6.0"
-# reads the process SIGINT and SIGTERM dispositions in tests/host_process.rs
+# reads the SIGINT and SIGTERM dispositions in tests/host_process.rs and sends
+# SIGINT in tests/binary_deploy.rs
 libc = { workspace = true }

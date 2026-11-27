@@ -125,7 +125,7 @@ Each reads the SIGINT and SIGTERM dispositions before and after and expects them
 
 `tests/binary_deploy.rs` runs the built `datafeed` binary on the vendored order book reference fixture with a raw capture tap, and compares what it leaves on disk with the library path and the committed seam baseline.
 
-The binary's sink discards records, so its normalized output is visible only through the capture. The target is declared with `required-features = ["bin"]`, so builds without the feature (the `datafeed-embedded` job, the pre-push hook) skip it.
+The binary's sink discards records and the tap stores raw frames, so the binary's normalized output is not observed. The digest checks prove the capture holds the baseline frames, normalized by an adapter the test builds from its own config values. The target is declared with `required-features = ["bin"]`, so builds without the feature (the `datafeed-embedded` CI job and pre-push command) skip it; the workspace pre-push `nextest` runs it.
 
 ### Binary capture matches the library and the baseline
 
@@ -133,17 +133,23 @@ The binary exits 0 and writes the same capture tree as `app::run_config` over th
 
 [[crates/datafeed/tests/binary_deploy.rs#binary_capture_tree_matches_the_library_path_and_the_seam_baseline]] runs one JSON config through the binary and through [[crates/datafeed/src/app.rs#run_config]] with a different `raw_dir`, and requires equal trees, manifests included. [[crates/datafeed/tests/support/capture_tree.rs#assert_manifests_verify]] checks each listed file against its sha256 and its record count, and that no capture leaf sits outside a manifest. The leaf then replays through the adapter and its digests must equal the `nasdaq-orderbook-reference` lines of [[tests#Seam parity gate]], so a binary that dropped or reordered frames fails even when it matches the library.
 
+### Binary capture of the prefix matches the baseline
+
+The NASDAQ ITCH prefix, many 64-frame batches long, goes through the binary and its capture matches the `nasdaq-itch-prefix` digest lines, which the one-batch reference fixture cannot show.
+
+[[crates/datafeed/tests/binary_deploy.rs#binary_capture_of_the_itch_prefix_matches_the_seam_baseline]] is `#[ignore]` like its `seam_parity` twin and needs `NASDAQ_ITCH_PREFIX` set to the venue crate's prefix fixture. It requires exit status 0, verified manifests, and the baseline digests from a replay of the captured leaf.
+
 ### SIGINT during a replay changes nothing
 
 A replay ignores the stop flag, so a SIGINT in the middle of one neither kills the process nor shortens the capture.
 
-[[crates/datafeed/tests/binary_deploy.rs#sigint_during_a_replay_leaves_the_tree_of_an_undisturbed_run]] is unix-only. It paces a replay in real time at 100 ms per frame, waits until the first capture file exists, sends SIGINT, and requires exit status 0, a tree equal to an unpaced library run, and verified manifests. A change that lets a replay stop on SIGINT fails it on purpose: amend it together with the replay contract.
+[[crates/datafeed/tests/binary_deploy.rs#sigint_during_a_replay_leaves_the_tree_of_an_undisturbed_run]] is unix-only. It paces a replay in real time at 100 ms per frame, waits one second, checks the child is still running, sends SIGINT, and requires exit status 0, a tree equal to an unpaced library run, and verified manifests. A change that lets a replay stop on SIGINT fails it on purpose: amend it together with the replay contract.
 
 ## Live shutdown
 
-A live session whose stop flag is set mid-run ends, and closing it finishes the tap and writes the manifest. The binary cannot show this, because NASDAQ declares no live source.
+A live run whose stop flag is set mid-run ends, and its capture tap is finished with a manifest. The binary cannot be driven live, because NASDAQ declares no live source.
 
-[[crates/datafeed/tests/live_shutdown.rs#stop_mid_run_finishes_the_tap_and_writes_the_manifest]] builds a `FeedSession` on a test-only descriptor with `soupbin_live: true` against an in-process SoupBinTCP server that sends a system event and an add and then holds the connection open. It sets the flag once two records have arrived, polls to `Closed`, closes the session, and requires one manifest-listed file whose sha256 and two rows verify. A session that dropped without `close` leaves no manifest and fails.
+[[crates/datafeed/tests/live_shutdown.rs#stop_mid_run_finishes_the_tap_and_writes_the_manifest]] parses a live JSON config, swaps in a test-only descriptor with `soupbin_live: true`, and runs [[crates/datafeed/src/app.rs#run_config]], the call `main` makes, on a thread against an in-process SoupBinTCP server that sends a system event and an add and then holds the connection open. It sets the flag once the capture file exists, requires `Ok`, and requires one manifest-listed file whose sha256 and rows verify. A `run_config` that does not pass the flag to a live session never returns and fails on the deadline, and one that drops the session without `close` leaves no manifest.
 
 ## Unit tests on the NASDAQ fixture venue
 

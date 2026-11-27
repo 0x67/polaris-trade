@@ -2,9 +2,10 @@
 //! reference fixture with a raw capture tap and compares what it leaves on disk
 //! with the library path and the committed seam baseline.
 //!
-//! The binary's sink discards records, so its normalized output is only
-//! observable through the capture: the tap stores the raw frames, and replaying
-//! them through the adapter must reproduce the baseline digests.
+//! The binary's sink discards records and the tap stores raw frames, so what
+//! the binary normalizes is not observed. The digest check proves the capture
+//! holds the baseline frames: replaying them through an adapter built here from
+//! the same config values must reproduce the baseline digests.
 
 mod support;
 
@@ -15,17 +16,13 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 #[cfg(unix)]
-use std::{
-    process::Stdio,
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::{process::Stdio, thread::sleep, time::Duration};
 
 use datafeed::app::{CliOverrides, load_config, run_config};
 use md_replay::CaptureReplay;
 use serde_json::{Value, json};
 use support::{
-    capture_tree::{assert_manifests_verify, output_tree},
+    capture_tree::{assert_manifests_verify, output_tree, wait_until},
     digest::{config, digest_lines, expected_digests, replay_digest},
     reference_parity::binary_dump,
 };
@@ -33,8 +30,7 @@ use support::{
 const STREAM_HEX: &str = include_str!("fixtures/orderbook-reference/stream.hex");
 const CAPTURE_DATE: u32 = 20260521;
 
-/// A scratch directory holding the replay dump, and room for configs and
-/// capture trees. Removed when dropped.
+/// A scratch directory holding configs and capture trees. Removed when dropped.
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -43,12 +39,18 @@ impl Scratch {
             std::env::temp_dir().join(format!("datafeed_deploy_{name}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create scratch dir");
-        fs::write(dir.join("stream.bin"), binary_dump(STREAM_HEX)).expect("write replay dump");
         Scratch(dir)
     }
 
-    /// Writes `<name>.json`: the reference replay with its tap under `<name>_out`.
-    fn config(&self, name: &str, pacing: Value, step_ns: u64) -> (PathBuf, PathBuf) {
+    /// Writes the reference fixture as a length-prefixed dump and returns its path.
+    fn reference_dump(&self) -> PathBuf {
+        let path = self.0.join("stream.bin");
+        fs::write(&path, binary_dump(STREAM_HEX)).expect("write replay dump");
+        path
+    }
+
+    /// Writes `<name>.json`: a replay of `dump` with its tap under `<name>_out`.
+    fn config(&self, name: &str, dump: &Path, pacing: Value, step_ns: u64) -> (PathBuf, PathBuf) {
         let out = self.0.join(format!("{name}_out"));
         let config = json!({
             "venue": "nasdaq",
@@ -56,7 +58,7 @@ impl Scratch {
             "session_midnight_ns": 0,
             "source": {
                 "kind": "replay",
-                "path": self.0.join("stream.bin"),
+                "path": dump,
                 "base_ts": 0,
                 "step_ns": step_ns,
                 "pacing": pacing,
@@ -100,8 +102,9 @@ fn only_leaf(tree: &[(String, Vec<u8>)]) -> PathBuf {
 #[test]
 fn binary_capture_tree_matches_the_library_path_and_the_seam_baseline() {
     let scratch = Scratch::new("parity");
-    let (bin_config, bin_out) = scratch.config("bin", json!({}), 1);
-    let (lib_config, lib_out) = scratch.config("lib", json!({}), 1);
+    let dump = scratch.reference_dump();
+    let (bin_config, bin_out) = scratch.config("bin", &dump, json!({}), 1);
+    let (lib_config, lib_out) = scratch.config("lib", &dump, json!({}), 1);
 
     let run = binary(&bin_config).output().expect("run datafeed");
     assert!(
@@ -124,36 +127,52 @@ fn binary_capture_tree_matches_the_library_path_and_the_seam_baseline() {
         "one listed capture file"
     );
 
-    let leaf = bin_out.join(only_leaf(&tree));
+    assert_capture_matches_baseline(
+        &bin_out.join(only_leaf(&tree)),
+        "nasdaq-orderbook-reference",
+    );
+}
+
+/// The prefix spans many 64-frame batches, which the reference fixture does
+/// not, so this checks the capture across batch boundaries. Needs
+/// `NASDAQ_ITCH_PREFIX`; see the `seam_parity` module doc.
+// @lat: [[tests#Deployed binary#Binary capture of the prefix matches the baseline]]
+#[test]
+#[ignore = "needs NASDAQ_ITCH_PREFIX; see the seam_parity module doc"]
+fn binary_capture_of_the_itch_prefix_matches_the_seam_baseline() {
+    let prefix = PathBuf::from(
+        std::env::var_os("NASDAQ_ITCH_PREFIX").expect("NASDAQ_ITCH_PREFIX must be set"),
+    );
+    let scratch = Scratch::new("prefix");
+    let (config, out) = scratch.config("prefix", &prefix, json!({}), 1);
+
+    let run = binary(&config).output().expect("run datafeed");
+    assert!(
+        run.status.success(),
+        "datafeed exited {}: {}",
+        run.status,
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    assert_manifests_verify(&out);
+    assert_capture_matches_baseline(
+        &out.join(only_leaf(&output_tree(&out))),
+        "nasdaq-itch-prefix",
+    );
+}
+
+/// Replays the capture leaf through the NASDAQ adapter and requires the
+/// fixture's committed digest lines.
+fn assert_capture_matches_baseline(leaf: &Path, fixture: &str) {
     let source = CaptureReplay::from_reader(fs::File::open(leaf).expect("open leaf"))
         .expect("capture decodes");
     let config = config("nasdaq", 2, 0);
     let (sink, _) = replay_digest(&config, &mut *(config.venue.make)(&config), source);
     assert_eq!(
-        digest_lines("nasdaq-orderbook-reference", &sink),
-        expected_digests("nasdaq-orderbook-reference"),
+        digest_lines(fixture, &sink),
+        expected_digests(fixture),
         "records rebuilt from the binary's capture differ from the committed baseline"
     );
-}
-
-#[cfg(unix)]
-const DEADLINE: Duration = Duration::from_secs(30);
-
-#[cfg(unix)]
-fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
-    let start = Instant::now();
-    while !ready() {
-        assert!(start.elapsed() < DEADLINE, "timed out waiting for {what}");
-        sleep(Duration::from_millis(10));
-    }
-}
-
-#[cfg(unix)]
-fn has_capture_file(dir: &Path) -> bool {
-    dir.exists()
-        && output_tree(dir)
-            .iter()
-            .any(|(path, _)| path.ends_with(".mdc1.zst"))
 }
 
 // A replay ignores the stop flag (see `app::run_config`), so a SIGINT in the
@@ -166,18 +185,27 @@ fn sigint_during_a_replay_leaves_the_tree_of_an_undisturbed_run() {
     let scratch = Scratch::new("sigint");
     // 33 steps of 100 ms in real time keep the run alive for about 3 s.
     let pacing = json!({"default_mode": {"mode": "real-time"}});
-    let (slow_config, slow_out) = scratch.config("slow", pacing, 100_000_000);
-    let (ref_config, ref_out) = scratch.config("ref", json!({}), 100_000_000);
+    let dump = scratch.reference_dump();
+    let (slow_config, slow_out) = scratch.config("slow", &dump, pacing, 100_000_000);
+    let (ref_config, ref_out) = scratch.config("ref", &dump, json!({}), 100_000_000);
 
     let mut child = binary(&slow_config)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn datafeed");
-    wait_until("the first capture file", || has_capture_file(&slow_out));
+    // Frames reach the tap only when the paced batch completes, so no file
+    // marks the middle of the run; give the handlers time to install instead.
+    sleep(Duration::from_secs(1));
+    // An exited child still receives `kill` while unreaped, so a finished run
+    // must fail here, before the signal.
+    assert!(
+        child.try_wait().expect("poll child").is_none(),
+        "the run ended before SIGINT was sent"
+    );
     // SAFETY: `kill` takes a pid and a signal number and touches no memory.
     let rc = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) };
-    assert_eq!(rc, 0, "SIGINT not delivered: the run ended first");
+    assert_eq!(rc, 0, "SIGINT not delivered");
     wait_until("the binary to exit", || {
         child.try_wait().expect("poll child").is_some()
     });
