@@ -25,6 +25,8 @@ use md_replay::BinaryFileReplay;
 use orderbook_engine::{ApplyResult, BookDerive, BookEngine, DeriveEngine, PurposeSet};
 use sha2::{Digest, Sha256};
 
+use super::digest::hex;
+
 /// Frame a hex-per-line ITCH dump (one message per line, no framing) as
 /// BinaryFILE rows: a `u16` big-endian length, then the message bytes.
 pub fn binary_dump(input: &str) -> Vec<u8> {
@@ -533,7 +535,7 @@ fn verify_reference_artifacts(reference_dir: &Path) -> io::Result<()> {
     let manifest_bytes = std::fs::read(&manifest_path)?;
     let marker = reference_dir.join(format!(
         ".verified-{}",
-        hex_digest(&Sha256::digest(&manifest_bytes))
+        hex(&Sha256::digest(&manifest_bytes))
     ));
     if marker.exists() {
         return Ok(());
@@ -601,15 +603,7 @@ fn decompressed_sha256(path: &Path) -> io::Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(hex_digest(&hasher.finalize()))
-}
-
-fn hex_digest(digest: &[u8]) -> String {
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
+    Ok(hex(&hasher.finalize()))
 }
 
 struct FullEvent {
@@ -1411,7 +1405,7 @@ mod tests {
         for (file, content) in artifacts {
             write_gz(&dir.join(file), content);
         }
-        let sha = |content: &[u8]| hex_digest(&Sha256::digest(content));
+        let sha = |content: &[u8]| hex(&Sha256::digest(content));
         let manifest = serde_json::json!({
             "baseline": {
                 "l1": { "uncompressed_sha256": sha(artifacts[0].1) },

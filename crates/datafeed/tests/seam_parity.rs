@@ -24,116 +24,20 @@
 
 mod support;
 
-use std::{
-    collections::BTreeMap, fmt::Write as _, io::Cursor, path::PathBuf, sync::atomic::AtomicBool,
+use std::{io::Cursor, path::PathBuf};
+
+use datafeed::{config::DatafeedConfig, session::SessionStats};
+use md_pipeline::{AdapterStats, DynAdapter, IngestSource};
+use md_replay::BinaryFileReplay;
+use support::{
+    digest::{config, digest_lines, expected_digests, replay_digest},
+    reference_parity::binary_dump,
 };
 
-use datafeed::{
-    config::DatafeedConfig,
-    restart::RestartState,
-    session::{self, SessionState, SessionStats},
-    tap::NoopTap,
-};
-use md_events::rtype;
-use md_pipeline::{
-    AdapterStats, DynAdapter, EgressSequencer, IngestSource, OutputSink, RecordRef, SinkError,
-};
-use md_replay::{
-    BinaryFileReplay, PacedSource, Pacing, PacingMode, ReplayDriver, SharedClock, ThreadSleepPacer,
-};
-use sha2::{Digest, Sha256};
-use support::{record::header_bytes, reference_parity::binary_dump};
-
-// mirrors BATCH_SIZE in src/replay.rs
-const BATCH_SIZE: usize = 64;
 // venue id every NASDAQ test uses; a BinaryFILE has no header to adopt one from
 const NASDAQ_VENUE: u16 = 2;
 const STREAM_HEX: &str = include_str!("fixtures/orderbook-reference/stream.hex");
-const DIGESTS: &str = include_str!("fixtures/seam-parity/baseline-nasdaq.sha256");
 const COUNTERS: &str = include_str!("fixtures/seam-parity/baseline-counters.txt");
-
-#[derive(Default)]
-struct Tally {
-    hasher: Sha256,
-    count: u64,
-}
-
-/// Overall digest plus one per `(stream, rtype)` output stream.
-#[derive(Default)]
-struct DigestSink {
-    all: Tally,
-    per_stream: BTreeMap<(u16, u8), Tally>,
-}
-
-impl OutputSink for DigestSink {
-    fn publish(&mut self, rec: RecordRef<'_>) -> Result<(), SinkError> {
-        let header = header_bytes(rec.header);
-        let stream = self
-            .per_stream
-            .entry((rec.stream.0, rec.header.rtype))
-            .or_default();
-        for tally in [&mut self.all, stream] {
-            tally.hasher.update(header);
-            tally.hasher.update(rec.body);
-            tally.count += 1;
-        }
-        Ok(())
-    }
-}
-
-fn rtype_name(rt: u8) -> String {
-    let name = match rt {
-        rtype::CONTROL => "control",
-        rtype::MBO => "mbo",
-        rtype::LEVEL => "level",
-        rtype::MBP10 => "mbp10",
-        rtype::BBO => "bbo",
-        rtype::TRADE => "trade",
-        rtype::TRADE_BREAK => "trade_break",
-        rtype::OHLCV => "ohlcv",
-        rtype::IMBALANCE => "imbalance",
-        rtype::FILL => "fill",
-        rtype::STATS => "stats",
-        rtype::STATUS => "status",
-        rtype::DEFINITION => "definition",
-        other => return format!("rtype0x{other:02x}"),
-    };
-    name.to_owned()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(out, "{b:02x}");
-    }
-    out
-}
-
-/// The sink's digest lines in the committed `<sha256> <fixture>/<stream> <count>` form.
-fn digest_lines(fixture: &str, sink: &DigestSink) -> String {
-    let digest = |t: &Tally| hex(&t.hasher.clone().finalize());
-    let mut lines = format!("{} {fixture}/all {}\n", digest(&sink.all), sink.all.count);
-    for ((stream, rt), tally) in &sink.per_stream {
-        let _ = writeln!(
-            lines,
-            "{} {fixture}/stream{stream}.{} {}",
-            digest(tally),
-            rtype_name(*rt),
-            tally.count
-        );
-    }
-    lines
-}
-
-/// The committed digest lines for one fixture.
-fn expected_digests(fixture: &str) -> String {
-    let tag = format!(" {fixture}/");
-    DIGESTS
-        .lines()
-        .filter(|line| line.contains(&tag))
-        .map(|line| format!("{line}\n"))
-        .collect()
-}
 
 /// The raw `value` of a `key=value` from the committed counter block of one fixture.
 fn expected_value(fixture: &str, key: &str) -> &'static str {
@@ -176,17 +80,6 @@ fn assert_counters(fixture: &str, stats: &SessionStats, adapter: &AdapterStats) 
     );
 }
 
-/// A replay config parsed the way the binary loads one, so the venue name
-/// resolves through the registry and every unset field takes its serde default.
-fn config(venue: &str, venue_id: u16, session_midnight_ns: u64) -> DatafeedConfig {
-    serde_json::from_str(&format!(
-        r#"{{"venue": "{venue}", "venue_id": {venue_id},
-            "session_midnight_ns": {session_midnight_ns},
-            "source": {{"kind": "replay", "path": "fixture"}}}}"#
-    ))
-    .expect("parity config")
-}
-
 /// Replay `source` through `adapter` on the erased path the binary runs, and
 /// check the result against the committed baseline.
 fn replay_and_compare<Src: IngestSource>(
@@ -195,31 +88,8 @@ fn replay_and_compare<Src: IngestSource>(
     adapter: &mut dyn DynAdapter,
     source: Src,
 ) {
-    let clock = SharedClock::new();
-    let paced = PacedSource::new(
-        ReplayDriver::new(
-            source,
-            ThreadSleepPacer,
-            Pacing::Fixed(PacingMode::Unthrottled),
-        ),
-        clock.clone(),
-    );
-    let mut seq = EgressSequencer::new(DigestSink::default(), clock);
-    let mut state = SessionState::from_config(config).expect("default resolutions");
-    let (stats, _) = session::run(
-        paced,
-        adapter,
-        &mut seq,
-        &mut NoopTap,
-        &mut state,
-        &mut RestartState::default(),
-        session::RunControl {
-            batch: BATCH_SIZE,
-            stop: &AtomicBool::new(false),
-        },
-    )
-    .expect("replay");
-    assert_eq!(digest_lines(fixture, seq.sink()), expected_digests(fixture));
+    let (sink, stats) = replay_digest(config, adapter, source);
+    assert_eq!(digest_lines(fixture, &sink), expected_digests(fixture));
     assert_counters(fixture, &stats, adapter.stats());
 }
 
