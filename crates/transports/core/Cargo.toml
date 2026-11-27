@@ -1,6 +1,6 @@
 [package]
 name = "polaris-transport-core"
-version = "0.3.0" # x-release-please-version
+version = "0.4.0" # x-release-please-version
 description = "Transport traits, frame batches, buffer pools, errors and the kernel-bypass shell shared by every backend"
 edition.workspace = true
 rust-version.workspace = true

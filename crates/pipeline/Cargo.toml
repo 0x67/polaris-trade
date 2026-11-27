@@ -1,7 +1,7 @@
 [package]
 name = "polaris-pipeline"
 description = "Ingest/output traits, egress sequencing, instrument identity, versioned config, coverage"
-version = "0.3.0" # x-release-please-version
+version = "0.4.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
