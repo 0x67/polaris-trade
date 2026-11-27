@@ -1,7 +1,7 @@
 [package]
 name = "polaris-datafeed-ffi"
 description = "C ABI over the datafeed feed session, with a generated header"
-version = "0.3.0" # x-release-please-version
+version = "0.4.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

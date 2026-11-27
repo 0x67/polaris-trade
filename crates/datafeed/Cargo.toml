@@ -1,7 +1,7 @@
 [package]
 name = "polaris-datafeed"
 description = "Market-data feed binary and library: wires adapters, engine, and sinks"
-version = "0.3.0" # x-release-please-version
+version = "0.4.0" # x-release-please-version
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
