@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-client-moldudp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "allocation-counter",
  "bitvec",
@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-client-soupbintcp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "allocation-counter",
  "bytes",
@@ -1706,7 +1706,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-codegen"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_yaml_ng",
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-datafeed"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "flate2",
  "hdrhistogram",
@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-datafeed-ffi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cbindgen",
  "cc",
@@ -1758,11 +1758,11 @@ dependencies = [
 
 [[package]]
 name = "polaris-events"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "polaris-format-mdc"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "polaris-events",
  "thiserror",
@@ -1771,7 +1771,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-format-pbn"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "polaris-events",
  "thiserror",
@@ -1780,7 +1780,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-mdex"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1796,7 +1796,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-orderbook"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "polaris-events",
  "rustc-hash",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-pipeline"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "jiff",
  "polaris-events",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-replay"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "flate2",
  "polaris-events",
@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-source-websocket"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytes",
  "polaris-pipeline",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-afxdp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "polaris-transport-core",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "allocation-counter",
  "criterion",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-dpdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-io-uring"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "io-uring",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-transport-socket"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "allocation-counter",
  "criterion",
@@ -1900,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-venue-binance"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "polaris-events",
@@ -1914,14 +1914,14 @@ dependencies = [
 
 [[package]]
 name = "polaris-venue-common"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "polaris-venue-hyperliquid"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "polaris-events",
@@ -1932,7 +1932,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-venue-nasdaq"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "polaris-events",
@@ -1944,7 +1944,7 @@ dependencies = [
 
 [[package]]
 name = "polaris-venue-sgx"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "polaris-venue-common",
