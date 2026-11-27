@@ -1,0 +1,34 @@
+[package]
+name = "polaris-datafeed-ffi"
+description = "C ABI over the datafeed feed session, with a generated header"
+version = "0.3.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+publish = false
+
+[lib]
+# The name a C host links: libpolaris_feed.a, libpolaris_feed.so,
+# libpolaris_feed.dylib, polaris_feed.dll. The rlib serves the Rust tests.
+name = "polaris_feed"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+# Without `bin`: the C library installs no signal handler, subscriber or
+# metrics recorder in the host process.
+polaris-datafeed = { path = "../datafeed", default-features = false }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# Exact pin: the header drift gate compares byte for byte, and another
+# cbindgen release can format the same items differently. `clap` only serves
+# its CLI.
+cbindgen = { version = "=0.29.4", default-features = false }
+# finds the platform C compiler for the C host tests
+cc = { workspace = true }
+
+[lints]
+workspace = true

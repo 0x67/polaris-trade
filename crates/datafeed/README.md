@@ -46,6 +46,11 @@ subscriber and recorder, and passes its own stop flag to
 cargo nextest run -p polaris-datafeed --no-default-features
 ```
 
+A host written in C, or in a language that calls C, links the C ABI in
+`crates/datafeed-ffi` instead: `polaris_feed_open`, `polaris_feed_poll` and
+`polaris_feed_close` over the same feed session, with the generated header
+`include/polaris_abi.h`. Its README has the build and the calling rules.
+
 ## Configuration
 
 `config.example.yaml` documents the venue, live/replay, container, loading,

@@ -266,7 +266,7 @@ Local hooks are the fast feedback loop; CI is the backstop for anyone who bypass
 
 # Releases
 
-release-please drives one version for all twenty-two members and tags the repository `vX.Y.Z`.
+release-please drives one version for all twenty-three members and tags the repository `vX.Y.Z`.
 
 - Changelog sections group by commit type (Features, Bug fixes, CI, and so on). A scope that names a crate directory (`events`, `pipeline`, `soupbintcp`) puts a bold crate prefix on the entry. A change that touches no crate uses the area it belongs to (`release`, `deps`, `lat`, `workspace`).
 - `.github/workflows/release-please.yml` is the release-please caller. It creates each Release as a draft and pushes the tag at once (`draft` and `force-tag-creation` in `release-please-config.json`).
