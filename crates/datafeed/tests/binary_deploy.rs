@@ -21,8 +21,10 @@ use std::{process::Stdio, thread::sleep, time::Duration};
 use datafeed::app::{CliOverrides, load_config, run_config};
 use md_replay::CaptureReplay;
 use serde_json::{Value, json};
+#[cfg(unix)]
+use support::capture_tree::wait_until;
 use support::{
-    capture_tree::{assert_manifests_verify, output_tree, wait_until},
+    capture_tree::{assert_manifests_verify, output_tree},
     digest::{config, digest_lines, expected_digests, replay_digest},
     reference_parity::binary_dump,
 };
