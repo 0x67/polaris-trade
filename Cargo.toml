@@ -23,6 +23,7 @@ members = [
   "crates/venues/sgx",
   "crates/tools/mdex",
   "crates/datafeed",
+  "crates/datafeed-ffi",
   "crates/sources/websocket",
 ]
 # detached: own workspace and lock, built by cargo-fuzz on nightly
@@ -77,7 +78,7 @@ sha2 = "0.11.0"
 time = { version = "0.3", features = ["macros"] }
 zstd = "0.13"
 
-# build only
+# build only; cc also finds the C compiler for the polaris-datafeed-ffi C host tests
 cc = "1.4.7"
 pkg-config = "0.3.34"
 
@@ -110,3 +111,9 @@ panic = "abort"
 # release binaries build with the release settings above, fat LTO included
 [profile.dist]
 inherits = "release"
+
+# the C library: release codegen, but a panic unwinds to the entry point's
+# catch_unwind and returns a status instead of aborting the host process
+[profile.ffi]
+inherits = "release"
+panic = "unwind"

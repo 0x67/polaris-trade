@@ -121,6 +121,28 @@ These cases need a client built without `compressed`, because the mock writes pl
 
 Each reads the SIGINT and SIGTERM dispositions before and after and expects them unchanged, and expects no global `tracing` subscriber. A library that registered a handler or installed a subscriber, in the session or in `run_config`, fails it. CI runs it with `--no-default-features` in the `datafeed-embedded` job, where the `bin` feature and its crates are absent from the build.
 
+## C ABI from a C host
+
+`polaris-datafeed-ffi` checks its C ABI ([[c-abi]]) from a real C program and from Rust: the committed header, a C harness against the cdylib, and the entry points' NULL, refusal and panic paths.
+
+### Header drift
+
+`tests/header.rs` runs cbindgen with the crate's `cbindgen.toml` over `src/lib.rs` and requires the output to equal the committed `include/polaris_abi.h` byte for byte.
+
+A changed signature, constant or doc comment without a regenerated header fails it. `POLARIS_ABI_HEADER_WRITE=1` makes the test write the header first, for the commit that changes the ABI.
+
+### C harness
+
+`tests/c_host.rs` builds C with the platform compiler that the `cc` crate finds, warnings as errors, `-std=c99 -pedantic` on GCC and Clang and `/std:c11` on MSVC, which has no C99 mode.
+
+`header_compiles_alone_under_strict_c` compiles a translation unit that includes only the header, so a header that depends on an include from its includer fails. `c_host_reads_the_records_rust_polls` links `tests/c/harness.c` against the cdylib cargo builds for the test's library dependency, runs it on the NASDAQ venue crate's committed ITCH prefix fixture (14,348 records), and compares each record's stream and bytes, in order, with what `FeedSession::poll` hands a Rust host over the same config. The harness first compares `polaris_abi_version()` with the header's `POLARIS_ABI_VERSION` and exits 1 when they differ. It polls 7 records at a time, so records carry over between polls, and it must end on `POLARIS_FEED_END` with close returning `POLARIS_OK`. Cargo 1.96 puts that cdylib beside the test binary in `deps/`. Cargo 1.100, the CI stable toolchain, gives every build unit its own `build/<package>/<hash>/out/`, and the test takes the newest cdylib among the package's units. Both tests run on Linux, macOS and Windows; on Windows the test puts the DLL's directory on `PATH`, elsewhere the harness is linked with an rpath to it.
+
+### Entry points from Rust
+
+The library tests in `src/tests.rs` call the `extern "C"` functions directly, which also lets CI run them under Miri.
+
+`null_pointers_return_the_null_status` passes NULL for each pointer argument, on an open handle where one is needed, and expects `POLARIS_ERR_NULL`, a NULL handle after a failed open, and a no-op close of NULL. `open_returns_the_status_of_each_refusal` expects `POLARIS_ERR_CONFIG` for a non-UTF-8 config, invalid JSON and an unknown venue, and `POLARIS_ERR_SOURCE` for a replay file that does not exist. `a_caught_panic_poisons_the_handle` polls an open handle once, panics inside the handle guard that every poll goes through, and expects `POLARIS_ERR_PANIC` from the guard, from the next poll and from close. Without `catch_unwind` the panic fails the test, and without the poison flag the poll returns records.
+
 ## Unit tests on the NASDAQ fixture venue
 
 Unit tests under `src/` that need a venue run on the `NASDAQ` descriptor, or on a test-only descriptor built from it when they need a property NASDAQ lacks.

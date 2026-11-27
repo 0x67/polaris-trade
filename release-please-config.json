@@ -143,6 +143,10 @@
         },
         {
           "type": "generic",
+          "path": "crates/datafeed-ffi/Cargo.toml"
+        },
+        {
+          "type": "generic",
           "path": "crates/sources/websocket/Cargo.toml"
         }
       ]
