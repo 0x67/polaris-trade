@@ -70,7 +70,8 @@ fn rtype_name(rt: u8) -> String {
     name.to_owned()
 }
 
-fn hex(bytes: &[u8]) -> String {
+/// Lowercase hex of a digest. sha2 0.11 returns an array with no `LowerHex`.
+pub fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         let _ = write!(out, "{b:02x}");

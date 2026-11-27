@@ -4,12 +4,18 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    thread::sleep,
+    time::{Duration, Instant},
 };
 
 use md_pipeline::{IngestError, IngestSource};
 use md_replay::CaptureReplay;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+use super::digest::hex;
+
+const DEADLINE: Duration = Duration::from_secs(30);
 
 /// Every file under `root` as (relative path, bytes), sorted by path so two
 /// trees compare independent of read-dir order.
@@ -89,11 +95,12 @@ pub fn assert_manifests_verify(root: &Path) -> usize {
         for file in manifest["files"].as_array().expect("files array") {
             let leaf = dir.join(file["path"].as_str().expect("path"));
             let bytes = fs::read(&leaf).unwrap_or_else(|_| panic!("{} missing", leaf.display()));
-            let digest: String = Sha256::digest(&bytes)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            assert_eq!(file["sha256"], digest, "{} sha256", leaf.display());
+            assert_eq!(
+                file["sha256"],
+                hex(&Sha256::digest(&bytes)),
+                "{} sha256",
+                leaf.display()
+            );
             assert_eq!(
                 file["records"].as_u64(),
                 Some(captured_rows(&leaf)),
@@ -113,4 +120,29 @@ pub fn assert_manifests_verify(root: &Path) -> usize {
         );
     }
     listed.len()
+}
+
+/// Polls `ready` every 10 ms and fails the test after 30 s.
+pub fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
+    let start = Instant::now();
+    while !ready() {
+        assert!(start.elapsed() < DEADLINE, "timed out waiting for {what}");
+        sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether a capture leaf exists under `dir`, which need not exist yet. Reads
+/// names only, so it is safe while the tap is still writing.
+pub fn has_capture_file(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            has_capture_file(&path)
+        } else {
+            path.extension().is_some_and(|e| e == "zst")
+        }
+    })
 }

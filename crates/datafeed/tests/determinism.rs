@@ -39,6 +39,7 @@ use proto_nasdaq::adapter::{self as nasdaq, NasdaqAdapter};
 use sha2::{Digest, Sha256};
 use support::{
     capture_tree::output_tree,
+    digest::hex,
     itch::{add, executed, stock_directory, system_event, trading_action},
     record::header_bytes,
     reference_parity::open_binary_sample,
@@ -49,17 +50,6 @@ use support::{
 // (one `Ok(0)` on the draining call, `Err(Closed)` after), so it can drive the
 // session loop to completion.
 // ---------------------------------------------------------------------------
-
-// Lowercase hex of a digest. sha2 0.11 returns a hybrid_array::Array with no
-// LowerHex, so format the bytes directly.
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(out, "{b:02x}");
-    }
-    out
-}
 
 #[derive(Clone)]
 struct Frame {
