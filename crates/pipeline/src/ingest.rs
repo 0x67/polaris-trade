@@ -3,8 +3,10 @@
 //! identical for live and replayed data.
 
 /// Identifies one logical stream (an ingest channel, or an egress record
-/// stream). Egress sequencing keys per-stream counters on this.
+/// stream). Egress sequencing keys per-stream counters on this. Transparent
+/// over `u16`, so a slice of stream ids crosses the plugin ABI as `uint16_t`s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct StreamId(pub u16);
 
 /// One unit of feed data: raw venue bytes plus the capture-boundary timestamp

@@ -157,7 +157,7 @@ A live run whose stop flag is set mid-run ends, and its capture tap is finished 
 
 ### Header drift
 
-`tests/header.rs` runs cbindgen with the crate's `cbindgen.toml` over `src/lib.rs` and requires the output to equal the committed `include/polaris_abi.h` byte for byte.
+`tests/header.rs` runs cbindgen with the crate's `cbindgen.toml` over `src/lib.rs` and `polaris-plugin`'s `src/abi.rs` and requires the output to equal the committed `include/polaris_abi.h` byte for byte.
 
 A changed signature, constant or doc comment without a regenerated header fails it. `POLARIS_ABI_HEADER_WRITE=1` makes the test write the header first, for the commit that changes the ABI.
 
@@ -165,7 +165,7 @@ A changed signature, constant or doc comment without a regenerated header fails 
 
 `tests/c_host.rs` builds C with the platform compiler that the `cc` crate finds, warnings as errors, `-std=c99 -pedantic` on GCC and Clang and `/std:c11` on MSVC, which has no C99 mode.
 
-`header_compiles_alone_under_strict_c` compiles a translation unit that includes only the header, so a header that depends on an include from its includer fails. `c_host_reads_the_records_rust_polls` links `tests/c/harness.c` against the cdylib cargo builds for the test's library dependency, runs it on the NASDAQ venue crate's committed ITCH prefix fixture (14,348 records), and compares each record's stream and bytes, in order, with what `FeedSession::poll` hands a Rust host over the same config. The harness first compares `polaris_abi_version()` with the header's `POLARIS_ABI_VERSION` and exits 1 when they differ. It polls 7 records at a time, so records carry over between polls, and it must end on `POLARIS_FEED_END` with close returning `POLARIS_OK`. Cargo 1.96 puts that cdylib beside the test binary in `deps/`. Cargo 1.100, the CI stable toolchain, gives every build unit its own `build/<package>/<hash>/out/`, and the test takes the newest cdylib among the package's units. Both tests run on Linux, macOS and Windows; on Windows the test puts the DLL's directory on `PATH`, elsewhere the harness is linked with an rpath to it.
+`header_compiles_alone_under_strict_c` compiles `tests/c/header_only.c`, which includes only the header, so a header that depends on an include from its includer fails. Its one function uses the plugin ABI as a host does: it takes a `polaris_adapter_entry_fn`, checks `abi_version`, then calls `create` and `drain` through the vtable and reads a record's `polaris_record_header`. The header's record header size check runs in the same compile, and a size other than 56 fails it ([[plugin#Header]]). `c_host_reads_the_records_rust_polls` links `tests/c/harness.c` against the cdylib cargo builds for the test's library dependency, runs it on the NASDAQ venue crate's committed ITCH prefix fixture (14,348 records), and compares each record's stream and bytes, in order, with what `FeedSession::poll` hands a Rust host over the same config. The harness first compares `polaris_abi_version()` with the header's `POLARIS_ABI_VERSION` and exits 1 when they differ. It polls 7 records at a time, so records carry over between polls, and it must end on `POLARIS_FEED_END` with close returning `POLARIS_OK`. Cargo 1.96 puts that cdylib beside the test binary in `deps/`. Cargo 1.100, the CI stable toolchain, gives every build unit its own `build/<package>/<hash>/out/`, and the test takes the newest cdylib among the package's units. Both tests run on Linux, macOS and Windows; on Windows the test puts the DLL's directory on `PATH`, elsewhere the harness is linked with an rpath to it.
 
 ### Entry points from Rust
 
@@ -204,6 +204,12 @@ Three frames on streams 0, 1 and 2 in one batch publish two `Control` records, o
 One frame that decodes to `Control::RecoveryComplete` leaves its resume sequence in `RestartState` once the session has routed it.
 
 [[crates/datafeed/src/session/tests.rs#decoded_recovery_sequence_reaches_restart_state]] compares the whole `RestartState`: `glimpse_resume_seq` holds the frame's sequence and the three socket resume points stay unset, since those come from a closed source ([[session#Restart and resume seam]]). The test fails when the session publishes the `Control` without handing it to `RestartState`.
+
+### Adapter fault ends the session
+
+An adapter that reports a fault ends the run with `SessionError::Adapter`, after the records drained before the fault in the same batch have published.
+
+[[crates/datafeed/src/session/tests.rs#adapter_fault_ends_the_session_after_routing_earlier_frames]] sets the adapter's `fault_after` to 1 and puts three frames in one batch: the first decodes, the second faults the adapter as a plugin panic does ([[plugin#Host wrapper#Faults into the session]]), and the third reaches a faulted adapter that ignores it. It expects `AdapterFault::Panicked` and one published record. A runner that never checks `DynAdapter::fault` returns `Ok`, and one that returns the fault before routing the batch publishes nothing.
 
 ## Bench timing
 

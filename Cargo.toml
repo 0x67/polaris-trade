@@ -24,6 +24,7 @@ members = [
   "crates/tools/mdex",
   "crates/datafeed",
   "crates/datafeed-ffi",
+  "crates/plugin",
   "crates/sources/websocket",
 ]
 # detached: own workspace and lock, built by cargo-fuzz on nightly

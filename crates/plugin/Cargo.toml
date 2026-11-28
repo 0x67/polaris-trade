@@ -1,0 +1,35 @@
+[package]
+name = "polaris-plugin"
+description = "Versioned C ABI for venue adapter plugins: the export a plugin builds and the host wrapper that runs it"
+version = "0.3.0" # x-release-please-version
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "README.md"
+publish = false
+
+[dependencies]
+# The adapter seam and the records that cross the ABI, and nothing of the
+# datafeed runtime: a closed adapter crate that exports a plugin links these.
+md-events = { workspace = true }
+md-pipeline = { workspace = true }
+thiserror = { workspace = true }
+# logs a plugin adapter whose destroy fails, since drop cannot return it
+tracing = { workspace = true }
+
+[dev-dependencies]
+md-replay = { workspace = true }
+proto-nasdaq = { workspace = true, features = ["adapter"] }
+serde_json = { workspace = true }
+
+# The NASDAQ adapter through the export and the host wrapper against the same
+# adapter boxed as a native `DynAdapter`, per record, over the committed
+# NASDAQ fixtures.
+[[bench]]
+name = "plugin_path"
+harness = false
+
+[lints]
+workspace = true

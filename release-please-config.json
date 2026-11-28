@@ -147,6 +147,10 @@
         },
         {
           "type": "generic",
+          "path": "crates/plugin/Cargo.toml"
+        },
+        {
+          "type": "generic",
           "path": "crates/sources/websocket/Cargo.toml"
         }
       ]

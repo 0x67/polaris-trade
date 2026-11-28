@@ -2,7 +2,7 @@
 
 Rust workspace for market-data transports (kernel sockets, io_uring, AF_XDP, DPDK) and the MoldUDP64 and SoupBinTCP clients built on them.
 
-Layout: `crates/transports/*`, `crates/clients/*`, `crates/venues/*`, `crates/formats/*`, `crates/tools/*`, `crates/sources/*`, the singletons `crates/{events,orderbook,pipeline,replay,codegen,datafeed,datafeed-ffi}`, and the codegen input schemas under `schemas/`.
+Layout: `crates/transports/*`, `crates/clients/*`, `crates/venues/*`, `crates/formats/*`, `crates/tools/*`, `crates/sources/*`, the singletons `crates/{events,orderbook,pipeline,replay,codegen,datafeed,datafeed-ffi,plugin}`, and the codegen input schemas under `schemas/`.
 
 ## Development
 

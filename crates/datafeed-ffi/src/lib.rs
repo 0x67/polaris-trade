@@ -3,9 +3,10 @@
 //! C ABI over [`datafeed::FeedSession`]. A host checks [`polaris_abi_version`]
 //! against the header it was compiled with, opens a session from a JSON
 //! config, polls stamped records into an array it owns, and closes the
-//! session. cbindgen generates `include/polaris_abi.h` from this file with
-//! `cbindgen.toml`, and `tests/header.rs` fails when the committed header
-//! differs from its output.
+//! session. cbindgen generates `include/polaris_abi.h` from this file and the
+//! plugin ABI in `polaris-plugin`'s `src/abi.rs` with `cbindgen.toml`, and
+//! `tests/header.rs` fails when the committed header differs from its output.
+//! [`PolarisRecord`] is that crate's, shared by both ABIs.
 //!
 //! The open, poll and close entry points catch a Rust panic and return
 //! [`POLARIS_ERR_PANIC`], which needs a library built with `panic = "unwind"`.
@@ -19,6 +20,7 @@ use std::{
 };
 
 use datafeed::{FeedError, FeedSession, FeedSessionBuilder, OwnedRecord, config::DatafeedConfig};
+pub use polaris_plugin::PolarisRecord;
 
 /// Version of this ABI. It changes when an exported signature, a struct
 /// layout or the meaning of a status changes. `polaris_abi_version` returns
@@ -64,22 +66,6 @@ pub const POLARIS_ERR_PANIC: i32 = -7;
 
 /// A failure this ABI version has no status for.
 pub const POLARIS_ERR_OTHER: i32 = -8;
-
-/// One record handed out by `polaris_feed_poll`: the egress stream it was
-/// published on, and its bytes as published, the 56-byte `RecordHeader` then
-/// the body (layouts in the events crate's `md_events.h`).
-///
-/// `bytes` points into a buffer the handle owns and reuses. It stays valid
-/// until the next call on the same handle, so copy what you keep first.
-#[repr(C)]
-pub struct PolarisRecord {
-    /// Egress stream the record was published on.
-    pub stream: u16,
-    /// Number of bytes at `bytes`, header included.
-    pub len: u32,
-    /// First byte of the record header.
-    pub bytes: *const u8,
-}
 
 /// An open feed session, opaque to C. `polaris_feed_open` creates it and
 /// `polaris_feed_close` releases it. Calls on one handle must not overlap,

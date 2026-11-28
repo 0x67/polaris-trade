@@ -127,12 +127,15 @@ jobs:
 
   # C ABI entry points (null checks, record writes into the caller's array,
   # the boxed handle, the panic guard and poison) through the lib tests, which
-  # call them from Rust. the C host tests stay out: Miri cannot run a C
-  # compiler or load the cdylib. the lib tests replay the committed NASDAQ
-  # fixture file, so Miri needs host file access.
+  # call them from Rust, for the embedding API and the plugin ABI (export
+  # entries, the host wrapper and the record rebuild from bytes). the C host
+  # tests and the NASDAQ plugin test stay out: Miri cannot run a C compiler or
+  # load the cdylib, and the full fixture is too slow interpreted. the
+  # datafeed-ffi lib tests replay the committed NASDAQ fixture file, so Miri
+  # needs host file access.
   miri-datafeed-ffi:
     uses: 0x67/ci/.github/workflows/rust-miri.yml@main
     with:
-      miri-args: -p polaris-datafeed-ffi --lib
+      miri-args: -p polaris-datafeed-ffi -p polaris-plugin --lib
       miri-flags: -Zmiri-disable-isolation
       advisory: true

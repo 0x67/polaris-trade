@@ -1753,6 +1753,7 @@ dependencies = [
  "cbindgen",
  "cc",
  "polaris-datafeed",
+ "polaris-plugin",
  "serde_json",
 ]
 
@@ -1812,6 +1813,19 @@ dependencies = [
  "serde_json",
  "thiserror",
  "time",
+]
+
+[[package]]
+name = "polaris-plugin"
+version = "0.3.0"
+dependencies = [
+ "polaris-events",
+ "polaris-pipeline",
+ "polaris-replay",
+ "polaris-venue-nasdaq",
+ "serde_json",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
