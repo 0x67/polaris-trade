@@ -94,21 +94,16 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    /// Checks `vtable.abi_version` before reading anything else, then that no
-    /// entry is NULL, then reads the venue.
+    /// Checks `abi_version` first, then that no entry is NULL, then reads the venue.
     ///
     /// # Safety
-    ///
-    /// `vtable` behaves as `polaris_abi.h` documents, and the library holding
-    /// it stays loaded for the rest of the process: the strings, arrays and
-    /// functions it hands out are used as `'static`.
+    /// `vtable` behaves as `polaris_abi.h` documents, and its library stays
+    /// loaded for the rest of the process: its strings, arrays and functions
+    /// are used as `'static`.
     ///
     /// # Errors
-    ///
-    /// [`PluginError::AbiVersion`] naming both versions on a mismatch,
-    /// [`PluginError::MissingEntry`] for a NULL entry, and
-    /// [`PluginError::Failed`] or [`PluginError::Invalid`] when the venue
-    /// cannot be read.
+    /// [`PluginError::AbiVersion`] naming both versions, a `MissingEntry`, or a
+    /// `Failed` or `Invalid` venue entry.
     pub unsafe fn new(vtable: &'static PolarisAdapterVtable) -> Result<Self, PluginError> {
         if vtable.abi_version != POLARIS_PLUGIN_ABI_VERSION {
             return Err(PluginError::AbiVersion {
