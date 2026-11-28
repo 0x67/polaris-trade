@@ -4,7 +4,10 @@ Package `polaris-datafeed-ffi` is the C ABI over the `datafeed` library's feed
 session. A host in any language with a C bridge opens a session from a JSON
 config, polls stamped normalized records into an array the host allocates, and
 closes the session, with no Rust toolchain. The library is named
-`polaris_feed`, and its header is `include/polaris_abi.h`.
+`polaris_feed`, and its header is `include/polaris_abi.h`. The same header
+holds the C view of the venue adapter plugin ABI from `polaris-plugin`
+(`lat.md/plugin.md`), which shares `polaris_record` with this API and has its
+own version, `POLARIS_PLUGIN_ABI_VERSION`.
 
 It depends on `polaris-datafeed` without the `bin` feature, so loading it does
 not install a signal handler, a `tracing` subscriber or a metrics recorder in
@@ -66,10 +69,11 @@ threading rule and every status code. The record layouts are in
 cargo nextest run -p polaris-datafeed-ffi
 ```
 
-- `tests/header.rs` regenerates the header with cbindgen and fails when the
-  committed one differs. After an ABI change, rewrite it with
+- `tests/header.rs` regenerates the header with cbindgen from `src/lib.rs`
+  and `../plugin/src/abi.rs` and fails when the committed one differs. After an ABI change, rewrite it with
   `POLARIS_ABI_HEADER_WRITE=1 cargo nextest run -p polaris-datafeed-ffi --test header`.
-- `tests/c_host.rs` compiles the header alone under strict C, then builds
+- `tests/c_host.rs` compiles `tests/c/header_only.c`, which includes only the
+  header and calls a plugin through its vtable, under strict C, then builds
   `tests/c/harness.c` against the cdylib and checks that it reads the records
   `FeedSession::poll` hands a Rust host over the NASDAQ prefix fixture.
 - The library tests call the entry points from Rust: NULL arguments, the

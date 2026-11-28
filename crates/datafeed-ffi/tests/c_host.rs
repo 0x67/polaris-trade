@@ -174,8 +174,7 @@ fn c_records(mut file: &[u8]) -> Records {
 #[test]
 fn header_compiles_alone_under_strict_c() {
     let dir = scratch_dir("header_only");
-    let source = dir.join("header_only.c");
-    fs::write(&source, "#include \"polaris_abi.h\"\n").expect("write the translation unit");
+    let source = Path::new(MANIFEST_DIR).join("tests/c/header_only.c");
     let tool = c_compiler();
     let mut cmd = tool.to_command();
     cmd.arg("-c").arg(&source);

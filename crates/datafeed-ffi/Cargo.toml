@@ -20,6 +20,8 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 # Without `bin`: the C library installs no signal handler, subscriber or
 # metrics recorder in the host process.
 polaris-datafeed = { path = "../datafeed", default-features = false }
+# `polaris_record` and its header struct, which the plugin ABI shares
+polaris-plugin = { path = "../plugin" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

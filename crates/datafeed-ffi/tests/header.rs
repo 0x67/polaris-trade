@@ -1,6 +1,7 @@
 //! Drift gate for the committed C header: cbindgen regenerates it from
-//! `src/lib.rs` with `cbindgen.toml`, and the output must equal
-//! `include/polaris_abi.h` byte for byte.
+//! `src/lib.rs` and the plugin ABI in `../plugin/src/abi.rs` with
+//! `cbindgen.toml`, and the output must equal `include/polaris_abi.h` byte for
+//! byte.
 //!
 //! After an ABI change, rewrite the header with
 //! `POLARIS_ABI_HEADER_WRITE=1 cargo nextest run -p polaris-datafeed-ffi --test header`
@@ -16,8 +17,9 @@ fn committed_header_matches_cbindgen_output() {
     let bindings = cbindgen::Builder::new()
         .with_config(config)
         .with_src(dir.join("src/lib.rs"))
+        .with_src(dir.join("../plugin/src/abi.rs"))
         .generate()
-        .expect("cbindgen parses src/lib.rs");
+        .expect("cbindgen parses both sources");
     let mut fresh = Vec::new();
     bindings.write(&mut fresh);
 
