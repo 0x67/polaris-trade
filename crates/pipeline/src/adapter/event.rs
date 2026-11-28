@@ -71,31 +71,36 @@ impl MarketEvent {
     /// its wire form. Egress fields hold whatever the header carries now.
     #[inline]
     pub fn as_record_ref(&self, stream: StreamId) -> RecordRef<'_> {
+        RecordRef {
+            stream,
+            header: self.header(),
+            body: &self.as_bytes()[size_of::<RecordHeader>()..],
+        }
+    }
+
+    /// The whole `repr(C)` record, header then body, as one byte slice: the
+    /// form the plugin ABI hands across in a single pointer.
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            MarketEvent::Mbo(r) => record_ref(r, stream),
-            MarketEvent::Level(r) => record_ref(r, stream),
-            MarketEvent::Trade(r) => record_ref(r, stream),
-            MarketEvent::TradeBreak(r) => record_ref(r, stream),
-            MarketEvent::Imbalance(r) => record_ref(r, stream),
-            MarketEvent::Fill(r) => record_ref(r, stream),
-            MarketEvent::Stats(r) => record_ref(r, stream),
-            MarketEvent::Status(r) => record_ref(r, stream),
-            MarketEvent::Control(r) => record_ref(r, stream),
-            MarketEvent::Definition(r) => record_ref(r, stream),
+            MarketEvent::Mbo(r) => record_bytes(r),
+            MarketEvent::Level(r) => record_bytes(r),
+            MarketEvent::Trade(r) => record_bytes(r),
+            MarketEvent::TradeBreak(r) => record_bytes(r),
+            MarketEvent::Imbalance(r) => record_bytes(r),
+            MarketEvent::Fill(r) => record_bytes(r),
+            MarketEvent::Stats(r) => record_bytes(r),
+            MarketEvent::Status(r) => record_bytes(r),
+            MarketEvent::Control(r) => record_bytes(r),
+            MarketEvent::Definition(r) => record_bytes(r),
         }
     }
 }
 
-/// Split one md-events record into its header and the bytes after it.
-fn record_ref<T: Record>(rec: &T, stream: StreamId) -> RecordRef<'_> {
+/// Every byte of one md-events record, header first.
+fn record_bytes<T: Record>(rec: &T) -> &[u8] {
     // SAFETY: callers pass only generated md-events records, `repr(C)` and `Copy`. The generator
     // spells every gap as an explicit `_pad` field and const-asserts each record's size, so no
     // implicit padding exists and every byte behind `rec` is initialized.
-    let bytes =
-        unsafe { core::slice::from_raw_parts((rec as *const T).cast::<u8>(), size_of::<T>()) };
-    RecordRef {
-        stream,
-        header: rec.header(),
-        body: &bytes[size_of::<RecordHeader>()..],
-    }
+    unsafe { core::slice::from_raw_parts((rec as *const T).cast::<u8>(), size_of::<T>()) }
 }

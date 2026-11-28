@@ -17,7 +17,7 @@ mod tests;
 #[cfg(feature = "tz")]
 mod tz;
 
-pub use contract::{AdapterStats, DynAdapter, VenueAdapter};
+pub use contract::{AdapterFault, AdapterStats, DynAdapter, VenueAdapter};
 pub use event::MarketEvent;
 pub use session::{ClosureModel, NoTzdb, RollModel, SessionModel, TzResolver};
 #[cfg(feature = "tz")]

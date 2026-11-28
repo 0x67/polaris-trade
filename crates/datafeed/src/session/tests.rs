@@ -2,8 +2,8 @@ use std::sync::atomic::AtomicBool;
 
 use md_events::{Control, ControlKind, Level, LevelAction, Side, Status, Trade, rtype};
 use md_pipeline::{
-    AdapterStats, BundledTzdb, ClosureModel, IngestError, IngestFrame, IngestSource, RollModel,
-    SessionModel, SystemClock, VenueAdapter, VenueId, ingest::testing::MockFrame,
+    AdapterFault, AdapterStats, BundledTzdb, ClosureModel, IngestError, IngestFrame, IngestSource,
+    RollModel, SessionModel, SystemClock, VenueAdapter, VenueId, ingest::testing::MockFrame,
 };
 use proto_nasdaq::adapter::{self as nasdaq, NasdaqAdapter};
 
@@ -868,8 +868,8 @@ impl DynAdapter for SpyAdapter {
 
     fn drain_into(&mut self, _out: &mut Vec<MarketEvent>) {}
 
-    fn stats(&self) -> &AdapterStats {
-        &self.stats
+    fn stats(&self) -> AdapterStats {
+        self.stats
     }
 
     fn set_session_anchor(&mut self, anchor_ns: u64) {
@@ -1011,11 +1011,15 @@ const TWO_STREAMS: [StreamId; 2] = [StreamId(0), StreamId(1)];
 /// Adapter for a test venue with two streams. Its wire frame is one 8-byte
 /// big-endian resume sequence and decodes to a `Control::RecoveryComplete`
 /// carrying it. A frame on a stream outside `TWO_STREAMS` is ignored and moves
-/// no counter, as `VenueAdapter::feed` requires of every adapter.
+/// no counter, as `VenueAdapter::feed` requires of every adapter. With
+/// `fault_after` set it faults on the next frame once that many have decoded,
+/// as a plugin adapter does when its plugin panics, and ignores every later one.
 #[derive(Default)]
 struct TwoStreamAdapter {
     out: Vec<MarketEvent>,
     stats: AdapterStats,
+    fault_after: Option<u64>,
+    fault: Option<AdapterFault>,
 }
 
 impl DynAdapter for TwoStreamAdapter {
@@ -1028,7 +1032,11 @@ impl DynAdapter for TwoStreamAdapter {
     }
 
     fn feed(&mut self, stream: StreamId, payload: &[u8], ts_recv: u64, venue_seq: u64) {
-        if !TWO_STREAMS.contains(&stream) {
+        if !TWO_STREAMS.contains(&stream) || self.fault.is_some() {
+            return;
+        }
+        if self.fault_after == Some(self.stats.decoded) {
+            self.fault = Some(AdapterFault::Panicked);
             return;
         }
         let Ok(resume_seq) = payload.try_into().map(u64::from_be_bytes) else {
@@ -1060,11 +1068,15 @@ impl DynAdapter for TwoStreamAdapter {
         out.append(&mut self.out);
     }
 
-    fn stats(&self) -> &AdapterStats {
-        &self.stats
+    fn stats(&self) -> AdapterStats {
+        self.stats
     }
 
     fn set_session_anchor(&mut self, _anchor_ns: u64) {}
+
+    fn fault(&self) -> Option<AdapterFault> {
+        self.fault
+    }
 }
 
 fn recovery_frame(stream: u16, venue_seq: u64, resume_seq: u64) -> SequencedFrame {
@@ -1151,5 +1163,46 @@ fn decoded_recovery_sequence_reaches_restart_state() {
             glimpse_resume_seq: Some(6_042),
             ..RestartState::default()
         }
+    );
+}
+
+// One batch: frame 2 faults the adapter, frame 3 meets it faulted, frame 1 still publishes.
+// @lat: [[tests#Two-stream test adapter#Adapter fault ends the session]]
+#[test]
+fn adapter_fault_ends_the_session_after_routing_earlier_frames() {
+    let source = VecSource::new(vec![
+        recovery_frame(0, 1, 9_001),
+        recovery_frame(0, 2, 9_002),
+        recovery_frame(0, 3, 9_003),
+    ]);
+    let mut adapter = TwoStreamAdapter {
+        fault_after: Some(1),
+        ..TwoStreamAdapter::default()
+    };
+    let mut seq = EgressSequencer::new(CollectingSink::default(), SystemClock);
+
+    let result = run(
+        source,
+        &mut adapter,
+        &mut seq,
+        &mut NoopTap,
+        &mut SessionState::default(),
+        &mut RestartState::default(),
+        RunControl {
+            batch: 8,
+            stop: &AtomicBool::new(false),
+        },
+    );
+
+    assert!(
+        matches!(result, Err(SessionError::Adapter(AdapterFault::Panicked))),
+        "got {:?}",
+        result.map(|(stats, _)| stats)
+    );
+    let published: Vec<_> = seq.sink().records.iter().map(|r| r.venue_seq).collect();
+    assert_eq!(
+        published,
+        [1],
+        "the frame decoded before the fault publishes"
     );
 }

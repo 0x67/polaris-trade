@@ -90,7 +90,7 @@ fn replay_and_compare<Src: IngestSource>(
 ) {
     let (sink, stats) = replay_digest(config, adapter, source);
     assert_eq!(digest_lines(fixture, &sink), expected_digests(fixture));
-    assert_counters(fixture, &stats, adapter.stats());
+    assert_counters(fixture, &stats, &adapter.stats());
 }
 
 fn env_path(key: &str) -> PathBuf {

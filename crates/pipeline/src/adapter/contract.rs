@@ -17,6 +17,32 @@ pub struct AdapterStats {
     pub malformed: u64,
 }
 
+/// Why an erased adapter stopped decoding. The adapters in this workspace
+/// never fault; an adapter behind the plugin ABI does when its plugin fails a
+/// call or hands out a record the host cannot read. A faulted adapter ignores
+/// every later feed and drain, so the runner ends its session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AdapterFault {
+    /// The adapter panicked. Its state may be half updated, so it decodes
+    /// nothing more.
+    #[error("adapter panicked")]
+    Panicked,
+    /// A drained record has an unknown rtype, a length other than its record
+    /// type's, a header `length` that disagrees, or an invalid enum value.
+    /// `rtype` is `None` when the record is too short to hold one.
+    #[error("adapter emitted a malformed record of {len} bytes, rtype {rtype:?}")]
+    MalformedRecord {
+        /// The header's rtype byte.
+        rtype: Option<u8>,
+        /// Bytes in the record.
+        len: usize,
+    },
+    /// A call returned a status its interface does not define.
+    #[error("adapter call failed with status {0}")]
+    Status(i32),
+}
+
 /// Turns one venue's wire bytes into normalized [`MarketEvent`]s.
 ///
 /// The static, monomorphized seam the hot path runs on. It is not object-safe
@@ -100,11 +126,19 @@ pub trait DynAdapter {
     /// so the erased path allocates once per session rather than per drain.
     fn drain_into(&mut self, out: &mut Vec<MarketEvent>);
 
-    /// See [`VenueAdapter::stats`].
-    fn stats(&self) -> &AdapterStats;
+    /// A copy of [`VenueAdapter::stats`]. By value, so an adapter behind the
+    /// plugin ABI can copy its counters out of the plugin on each call.
+    fn stats(&self) -> AdapterStats;
 
     /// See [`VenueAdapter::set_session_anchor`].
     fn set_session_anchor(&mut self, anchor_ns: u64);
+
+    /// The fault that stopped this adapter, if any. A runner checks it once
+    /// per frame batch: every event drained before the fault is valid, and the
+    /// adapter emits nothing after it. `None` for every [`VenueAdapter`].
+    fn fault(&self) -> Option<AdapterFault> {
+        None
+    }
 }
 
 impl<T: VenueAdapter> DynAdapter for T {
@@ -124,8 +158,8 @@ impl<T: VenueAdapter> DynAdapter for T {
         out.extend(VenueAdapter::drain(self));
     }
 
-    fn stats(&self) -> &AdapterStats {
-        VenueAdapter::stats(self)
+    fn stats(&self) -> AdapterStats {
+        *VenueAdapter::stats(self)
     }
 
     fn set_session_anchor(&mut self, anchor_ns: u64) {

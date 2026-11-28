@@ -128,6 +128,10 @@ pub enum SessionError {
     /// resolve (an unknown zone), so the adapter has no anchor to decode it on.
     #[error("venue {venue} session anchor does not resolve for ts_recv {ts_recv}")]
     AnchorUnresolved { venue: &'static str, ts_recv: u64 },
+    /// The adapter stopped decoding: a plugin adapter failed a call or handed
+    /// out a record the host cannot read.
+    #[error("venue adapter: {0}")]
+    Adapter(#[from] md_pipeline::AdapterFault),
 }
 
 /// Running counters for one session run.
@@ -397,8 +401,9 @@ pub struct RunControl<'a> {
 /// # Errors
 ///
 /// A sink or tap failure ends the session, as does a live frame whose anchor
-/// does not resolve ([`SessionError::AnchorUnresolved`]). Frames fed before
-/// such a fault in the same batch still route and publish first.
+/// does not resolve ([`SessionError::AnchorUnresolved`]) or an adapter fault
+/// ([`SessionError::Adapter`]). Frames fed before such a fault in the same
+/// batch still route and publish first.
 pub fn run<A, Src, S, C, Tap>(
     mut source: Src,
     adapter: &mut A,
@@ -471,8 +476,9 @@ impl<F> StepBuffers<F> {
 ///
 /// # Errors
 ///
-/// As [`run`]: a sink or tap failure, or a live frame whose anchor does not
-/// resolve. Frames fed before the fault in the batch still route and publish.
+/// As [`run`]: a sink or tap failure, a live frame whose anchor does not
+/// resolve, or an adapter fault. Frames fed before the fault in the batch
+/// still route and publish.
 pub(crate) fn step<A, Src, S, C, Tap>(
     source: &mut Src,
     adapter: &mut A,
@@ -534,6 +540,11 @@ where
         }
         adapter.drain_into(events);
         spans.push((frame.stream(), events.len()));
+    }
+    // A faulted adapter emits nothing after the fault, so a check per batch
+    // ends the session with every event drained before it still routed.
+    if fault.is_none() {
+        fault = adapter.fault().map(SessionError::Adapter);
     }
     route_events(events, spans, &mut state.engines, seq, restart, mbo_batch)?;
     let routed = events.len() as u64;

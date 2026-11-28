@@ -16,8 +16,8 @@ pub mod output;
 #[cfg(feature = "tz")]
 pub use adapter::BundledTzdb;
 pub use adapter::{
-    AdapterStats, ClosureModel, DynAdapter, MarketEvent, NoTzdb, RollModel, SessionModel,
-    TzResolver, VenueAdapter,
+    AdapterFault, AdapterStats, ClosureModel, DynAdapter, MarketEvent, NoTzdb, RollModel,
+    SessionModel, TzResolver, VenueAdapter,
 };
 pub use config::{
     BoardMap, BoardRule, CivilDate, ConfigError, DeclaresVocabulary, EffectiveRange,
