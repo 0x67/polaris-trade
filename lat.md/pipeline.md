@@ -6,6 +6,8 @@ The `polaris-pipeline` crate holds the source-agnostic ingest contract, the venu
 
 Live transport clients and replay containers feed the pipeline through one contract yielding (payload, ts_recv, stream) frames, so the engine is identical for live and replayed data. See [[crates/pipeline/src/ingest.rs#IngestSource]].
 
+`StreamId` is `#[repr(transparent)]` over `u16`, so a plugin hands its stream list to the host as a `uint16_t` array.
+
 `recv_batch` is batch-first: `Ok(0)` means nothing ready, `PoolExhausted` is the backpressure signal, `Closed` ends the source. Semantics mirror `transport_core::DatagramSource::recv_burst`. A conformance suite (behind the `testing` feature) verifies impls. `run_ingest_source` runs all four cases; `run_ingest_cases` runs a chosen subset, for a source with no frame pool that never yields `PoolExhausted` (see [[websocket#Tests]]).
 
 [[crates/pipeline/src/ingest.rs#IngestFrame]] carries a `venue_seq` default method returning `0` ("not yet threaded"), additive so every existing frame type compiles unchanged until a source threads its real venue sequence. Every replay frame type now overrides it: see [[replay#Synthetic venue_seq]].
@@ -18,7 +20,9 @@ One trait turns any venue's wire bytes into normalized events, so a consumer hol
 
 `VenueAdapter::set_session_anchor` replaces the anchor a venue adds wire time-of-day offsets to, for every frame fed after the call. It is a provided no-op, right for a venue whose wire carries absolute time, so implementors without an anchor write nothing. `DynAdapter` declares it without a default and the blanket impl forwards it, so a hand-written erased impl must implement it too; [[crates/pipeline/src/adapter/testing/tests.rs#erased_session_anchor_reaches_adapter]] proves the erased call reaches the venue's override. A runner calls it at session open and each trade-date roll, never per frame, so the per-frame path compiles unchanged.
 
-Counters live in one [[crates/pipeline/src/adapter/contract.rs#AdapterStats]] (`decoded`, `unknown_kind`, `malformed`, counted per wire frame), marked `#[non_exhaustive]` so fields add without breaking callers. NASDAQ implements the seam in this workspace; see [[nasdaq#NASDAQ venue adapter#Seam config and session]].
+Counters live in one [[crates/pipeline/src/adapter/contract.rs#AdapterStats]] (`decoded`, `unknown_kind`, `malformed`, counted per wire frame), marked `#[non_exhaustive]` so fields add without breaking callers. `VenueAdapter::stats` lends them, and `DynAdapter::stats` returns a copy, because an adapter behind the [[plugin]] ABI copies them out of the plugin on each call.
+
+`DynAdapter::fault` reports the [[crates/pipeline/src/adapter/contract.rs#AdapterFault]] that stopped an erased adapter: a caught panic, a record the host cannot read, or a status its interface does not define. It defaults to `None`, which every `VenueAdapter` keeps, so only a plugin adapter faults. A faulted adapter emits nothing more, and the datafeed's runner checks once per frame batch and ends the session ([[plugin#Host wrapper#Faults into the session]]). NASDAQ implements the seam in this workspace; see [[nasdaq#NASDAQ venue adapter#Seam config and session]].
 
 Each adapter fills its `coverage` matrix from the presets on [[crates/pipeline/src/coverage.rs#Coverage]] (`REFERENCE`, `BOOK_AND_DERIVED`, `TAPE_ONLY`), so the three classes keep one definition across venues.
 
@@ -30,7 +34,7 @@ Each in-tree adapter's tests check the book and handled axes against emission: e
 
 [[crates/pipeline/src/adapter/event.rs#MarketEvent]] is exactly the union of the ten records venue adapters emit: adapters emit events, engines derive snapshots.
 
-`Mbp10`, `Bbo`, and `Ohlcv` come from the book and bar engines, so they are not variants. `Mbp10` alone is 480 bytes and would widen every emit, the 96-byte `Mbo` path included, to a 488-byte copy. A compile-time assert holds the enum at 176 bytes or less, the width of its widest variant, `Definition` with its derivative and FX tail ([[events#Definition tail growth]]). The enum is exactly 176 bytes, since the discriminant fits a niche of `option_type`, so every emit copies 176 bytes where it copied 120 before the tail. `as_record_ref` borrows the `repr(C)` record as header plus body bytes, the form sinks and the C ABI take, with no serialization.
+`Mbp10`, `Bbo`, and `Ohlcv` come from the book and bar engines, so they are not variants. `Mbp10` alone is 480 bytes and would widen every emit, the 96-byte `Mbo` path included, to a 488-byte copy. A compile-time assert holds the enum at 176 bytes or less, the width of its widest variant, `Definition` with its derivative and FX tail ([[events#Definition tail growth]]). The enum is exactly 176 bytes, since the discriminant fits a niche of `option_type`, so every emit copies 176 bytes where it copied 120 before the tail. `as_record_ref` borrows the `repr(C)` record as header plus body bytes, the form sinks and the C ABI take, with no serialization. `as_bytes` borrows the whole record as one slice, the form a plugin's `drain` hands across.
 
 ### Session model
 
